@@ -77,6 +77,10 @@ function CreateCoherentBridge() {
 
     this.translate = (txt) => txt;
 
+    this.beginProfileEvent = (event) => {};
+
+    this.endProfileEvent = () => {};
+
     this.GetSimVarArrayValues = function (simvars, callback) {
         return;
         // console.log("GetSimVarArrayValues " + simvars);

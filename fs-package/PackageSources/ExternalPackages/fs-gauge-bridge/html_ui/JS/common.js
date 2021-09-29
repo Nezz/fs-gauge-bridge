@@ -1,10 +1,205 @@
 var bDebugKeyNavigation = false;
+var bDebugKeyNavClearConsole = false;
 var bLiveReload = false;
 var bAutoReloadCSS = false;
 var bDebugListeners = false;
+var bDebugCursor = false;
+var bDebugElementsCreation = false;
 var g_externalVariables = {
+    vrMode: false,
     animationsEnabled: true,
 };
+var ScreenReader;
+(function (ScreenReader) {
+    class SRRuleEvent {
+        constructor() {
+            this.__Type = "SRRuleEvent";
+        }
+    }
+    class SRRule {
+    }
+    class Manager {
+        constructor() {
+            this.m_waitingEvents = [];
+            this.setRules = (rules) => {
+                this.m_rules = {};
+                for (let rule of rules) {
+                    this.m_rules[rule.nodeType] = rule;
+                }
+                for (let waiting of this.m_waitingEvents) {
+                    switch (waiting.event) {
+                        case "OnValidate":
+                            this.onValidate(waiting.elem);
+                            break;
+                        case "OnShow":
+                            this.onShow(waiting.elem);
+                            break;
+                        case "OnFocus":
+                            this.onFocus(waiting.elem);
+                            break;
+                    }
+                }
+                this.m_waitingEvents = [];
+            };
+            this.askTypeProperties = (type) => {
+                let elem = document.createElement(type);
+                if (elem) {
+                    let out = Object.getPrototypeOf(elem);
+                    const getters = Object.entries(Object.getOwnPropertyDescriptors(out))
+                        .filter(([key, descriptor]) => typeof descriptor.get === 'function')
+                        .map(([key]) => key);
+                    this.m_listener.trigger("SET_TYPE_PROPERTIES", type, getters);
+                }
+            };
+        }
+        updateStatus() {
+            if (this.active)
+                this.checkListener();
+            else {
+                if (this.m_listener)
+                    this.m_listener.unregister();
+                this.m_listener = null;
+            }
+        }
+        checkListener() {
+            if (!this.m_listener) {
+                this.m_listener = RegisterViewListener("JS_LISTENER_SCREEN_READER", () => {
+                    this.m_listener.trigger("ASK_RULES");
+                });
+                this.m_listener.on("RulesChanged", this.setRules);
+                this.m_listener.on("AskTypeProperties", this.askTypeProperties);
+            }
+        }
+        get active() { return g_externalVariables.useScreenReader === true; }
+        forceEvent(nodeName, event) {
+            if (this.active === true) {
+                this.checkListener();
+                this.m_listener.trigger("START_SR_EVENT", nodeName);
+                let textToRead = event.text != "" ? this.translateEvent(event.text, null) : "";
+                if (textToRead != "")
+                    this.m_listener.trigger("CHAIN_SR_EVENT", textToRead, event.delay, event.noCut);
+            }
+        }
+        onFocus(elem) {
+            if (!elem.canUseScreenReader())
+                return;
+            if (this.active === true) {
+                this.checkListener();
+                let rule = this.m_rules && this.m_rules[elem.nodeName];
+                if (rule != null) {
+                    this.onEvent(rule.onFocus, elem);
+                }
+                else {
+                    this.onNonExistingRule(elem, "OnFocus");
+                }
+            }
+        }
+        translateEvent(eventText, elem) {
+            if (eventText) {
+                let textToRead = Utils.Translate(eventText.toString()).replace(/\${([a-zA-Z]+)}/g, (substring, content) => {
+                    if (elem && content && content != undefined) {
+                        let elemToUse = null;
+                        if (elem[content] !== undefined)
+                            return Utils.Translate(elem[content]);
+                        let parent = elem.parentElement;
+                        while (parent) {
+                            if (parent[content] !== undefined) {
+                                elemToUse = parent;
+                            }
+                            parent = parent.parentElement;
+                        }
+                        if (elemToUse) {
+                            return Utils.Translate(elemToUse[content]);
+                        }
+                        return substring;
+                    }
+                    return "";
+                });
+                return textToRead;
+            }
+            else
+                return "";
+        }
+        onEvent(events, elem) {
+            if (events) {
+                this.m_listener.trigger("START_SR_EVENT", elem.nodeName);
+                for (let event of events) {
+                    let textToRead = event.text != "" ? this.translateEvent(event.text, elem) : "";
+                    if (textToRead != "")
+                        this.m_listener.trigger("CHAIN_SR_EVENT", textToRead, event.delay, event.noCut);
+                }
+            }
+        }
+        onNonExistingRule(elem, event) {
+            if (this.m_rules && this.m_listener && this.m_listener.connected) {
+                if (g_externalVariables.debugScreenReader) {
+                    this.m_listener.trigger("NON_EXISTING_RULE", elem.nodeName);
+                }
+            }
+            else {
+                this.m_waitingEvents.push({ elem, event });
+            }
+        }
+        onValidate(elem) {
+            if (!elem.canUseScreenReader())
+                return;
+            if (this.active === true) {
+                this.checkListener();
+                let rule = this.m_rules && this.m_rules[elem.nodeName];
+                if (rule != null) {
+                    this.onEvent(rule.onChange, elem);
+                }
+                else {
+                    this.onNonExistingRule(elem, "OnValidate");
+                }
+            }
+        }
+        onShow(elem) {
+            if (!elem.canUseScreenReader())
+                return;
+            if (this.active === true) {
+                this.checkListener();
+                let rule = this.m_rules && this.m_rules[elem.nodeName];
+                if (rule != null) {
+                    this.onEvent(rule.onShow, elem);
+                }
+                else {
+                    this.onNonExistingRule(elem, "OnShow");
+                }
+            }
+        }
+    }
+    function forceEvent(nodeName, event) {
+        if (g_ScreenReader)
+            g_ScreenReader.forceEvent(nodeName, event);
+    }
+    ScreenReader.forceEvent = forceEvent;
+    function onFocus(elem) {
+        if (g_ScreenReader)
+            g_ScreenReader.onFocus(elem);
+    }
+    ScreenReader.onFocus = onFocus;
+    function onValidate(elem) {
+        if (g_ScreenReader)
+            g_ScreenReader.onValidate(elem);
+    }
+    ScreenReader.onValidate = onValidate;
+    function updateStatus() {
+        if (g_ScreenReader)
+            g_ScreenReader.updateStatus();
+    }
+    ScreenReader.updateStatus = updateStatus;
+    function onShow(elem) {
+        if (g_ScreenReader)
+            g_ScreenReader.onShow(elem);
+    }
+    ScreenReader.onShow = onShow;
+    let g_ScreenReader = null;
+    document.addEventListener("DOMContentLoaded", () => {
+        if (!document.body.hasAttribute("no-screen-reader"))
+            g_ScreenReader = new Manager();
+    }, { once: true });
+})(ScreenReader || (ScreenReader = {}));
 function GameConfiguration() {
     if (window.frameElement) {
         return window.top["gameConfig"];
@@ -23,6 +218,19 @@ var GAME_CONFIGURATION;
     GAME_CONFIGURATION["SUBMISSION"] = "SUBMISSION";
 })(GAME_CONFIGURATION || (GAME_CONFIGURATION = {}));
 const GAME_CONFIGURATION_ORDER = [GAME_CONFIGURATION.DEBUG, GAME_CONFIGURATION.RELEASE, GAME_CONFIGURATION.MASTER, GAME_CONFIGURATION.SUBMISSION];
+function GamePlatform() {
+    if (window.frameElement) {
+        return window.top["gamePlatform"];
+    }
+    return window["gamePlatform"];
+}
+function PC() { return GamePlatform() === arguments.callee.name; }
+function XBOX() { return GamePlatform() === arguments.callee.name; }
+var GAME_PLATFORM;
+(function (GAME_PLATFORM) {
+    GAME_PLATFORM["PC"] = "PC";
+    GAME_PLATFORM["XBOX"] = "XBOX";
+})(GAME_PLATFORM || (GAME_PLATFORM = {}));
 ;
 var Logger;
 (function (Logger) {
@@ -106,17 +314,24 @@ var Include;
             }
             return absolutePathSplit.join("/");
         }
-        addImport(path, callback = null) {
-            if (path[0] !== "/" && !path.startsWith("coui://")) {
+        processPath(path) {
+            if (path[0] !== "/" && path.indexOf("coui://") == -1) {
                 path = IncludeMgr.AbsolutePath(window.location.pathname, path);
             }
-            path = path.toLowerCase();
+            else {
+                path = path.replace("coui://html_ui", "");
+            }
+            path = path.toLowerCase().replace(/\/.\//g, '/');
+            return path;
+        }
+        addImport(path, callback = null) {
+            path = this.processPath(path);
             var links = window.document.querySelectorAll('link[rel="import"]');
             for (let i = 0; i < links.length; i++) {
                 var toTest = links[i].href;
                 if (toTest !== "") {
                     toTest = toTest.toLowerCase();
-                    toTest = toTest.replace("coui://html_ui", "");
+                    toTest = toTest.replace(window.location.origin, "");
                     if (toTest[0] !== "/") {
                         toTest = IncludeMgr.AbsolutePath(window.location.pathname.toLowerCase(), toTest);
                     }
@@ -156,19 +371,18 @@ var Include;
             }
         }
         addScript(path, callback = null) {
-            if (path[0] !== "/") {
-                path = IncludeMgr.AbsolutePath(window.location.pathname, path);
-            }
-            path = path.toLowerCase();
+            path = this.processPath(path);
             let isInScripts = false;
             var scripts = document.head.getElementsByTagName("script");
             for (let i = 0; i < scripts.length; i++) {
                 var toTest = scripts[i].src;
                 if (toTest !== "") {
                     toTest = toTest.toLowerCase();
-                    toTest = toTest.replace(window.location.origin, "");
-                    if (toTest[0] !== "/") {
-                        toTest = IncludeMgr.AbsolutePath(window.location.pathname.toLowerCase(), toTest);
+                    if (toTest.indexOf('/vfs/') == -1) {
+                        toTest = toTest.replace("coui://html_ui", "");
+                        if (toTest[0] !== "/") {
+                            toTest = IncludeMgr.AbsolutePath(window.location.pathname.toLowerCase(), toTest);
+                        }
                     }
                     if (toTest === path) {
                         isInScripts = true;
@@ -208,7 +422,12 @@ var Include;
         requestScript(_def) {
             var scriptRequest = document.createElement("script");
             scriptRequest.type = "text/javascript";
-            scriptRequest.src = _def.path;
+            if (_def.path.indexOf("coui://html_ui") == -1) {
+                scriptRequest.src = encodeURI(_def.path);
+            }
+            else {
+                scriptRequest.src = encodeURI(_def.path);
+            }
             scriptRequest.onload = this.onScriptLoaded.bind(this, _def);
             _def.requested = true;
             return scriptRequest;
@@ -397,8 +616,13 @@ var CoherentSetup;
                 window.virtualHeight = window.innerHeight;
                 window.document.documentElement.style.setProperty('--currentPageHeight', (window.innerHeight).toString());
             }
-            window["screenHeight"] = Math.round(window["vh"] * window["virtualHeight"] * (g_externalVariables.uiScaling ? g_externalVariables.uiScaling / 100 : 1));
-            window["unscaledScreenHeight"] = Math.round(window["vh"] * window["virtualHeight"]);
+            if (window["viewportScreenHeight"]) {
+                window["unscaledScreenHeight"] = window["viewportScreenHeight"];
+            }
+            else {
+                window["unscaledScreenHeight"] = Math.round(window["vh"] * window["virtualHeight"]);
+            }
+            window["screenHeight"] = window["unscaledScreenHeight"] * (g_externalVariables.uiScaling ? g_externalVariables.uiScaling / 100 : 1);
             window.document.documentElement.style.setProperty('--uiScale', (g_externalVariables.uiScaling ? g_externalVariables.uiScaling / 100 : 1).toString());
             window.document.documentElement.style.setProperty('--screenHeight', window["screenHeight"].toString());
             window.document.documentElement.style.setProperty('--unscaledScreenHeight', window["unscaledScreenHeight"].toString());
@@ -431,25 +655,16 @@ var CoherentSetup;
             };
         }
         ;
-        Coherent.on("ON_VIEW_LOADED", function () {
-            Coherent["isViewLoaded"] = true;
-            CheckCoherentEngine(window);
-        });
         window.document.addEventListener("DOMContentLoaded", function () {
             if (Coherent.isAttached) {
                 window.document.body.classList.add("contentLoading");
             }
         });
-        Coherent.on("ON_VIEW_LOADED", function () {
-            if (window && window.document && window.document.body) {
-                window.document.body.classList.remove("contentLoading");
-                window.document.body.classList.add("contentLoaded");
-            }
-        });
         Coherent.on("ON_VIEW_RESIZED", function () { window.dispatchEvent(new Event('resize')); });
-        Coherent.on("SET_VIEWPORT_RATIO", function (ratioW, ratioH) {
+        Coherent.on("SET_VIEWPORT_RATIO", function (ratioW, ratioH, screenHeight) {
             window["viewportRatioW"] = ratioW;
             window["viewportRatioH"] = ratioH;
+            window["viewportScreenHeight"] = screenHeight;
             window.dispatchEvent(new Event('resize'));
         });
         Coherent.on("ON_VIEW_DESTROYED", function () {
@@ -486,10 +701,17 @@ var CoherentSetup;
                 }
             });
         }
+        if (XBOX()) {
+            document.documentElement.classList.add("xbox");
+        }
     }
 })(CoherentSetup || (CoherentSetup = {}));
 var Utils;
 (function (Utils) {
+    function isRectInRect(inner, outer) {
+        return inner.left >= outer.left && inner.right <= outer.right && inner.top >= outer.top && inner.bottom <= outer.bottom;
+    }
+    Utils.isRectInRect = isRectInRect;
     function dispatchToAllWindows(event) {
         window.top.dispatchEvent(event);
         if (window.top.frames) {
@@ -500,7 +722,7 @@ var Utils;
     }
     Utils.dispatchToAllWindows = dispatchToAllWindows;
     function toArray(array) {
-        return Array.prototype.slice.call(array);
+        return [...array];
     }
     Utils.toArray = toArray;
     function inIframe() {
@@ -897,17 +1119,26 @@ var Utils;
         return base.substring(start, start + length);
     }
     Utils.generateLorem = generateLorem;
+    let m_ProfanityListener;
     function filterProfanity(str) {
-        let list = ["bitch", "shit", "asshole"];
-        for (let word of list) {
-            var searchMask = word;
-            var regEx = new RegExp(searchMask, "ig");
-            str = str.replace(regEx, "");
+        if (!m_ProfanityListener) {
+            m_ProfanityListener = RegisterViewListener("JS_LISTENER_PROFANITY_FILTER");
         }
-        return str;
+        return new Promise((resolve) => {
+            m_ProfanityListener.trigger("REQUEST_PROFANITY_CHECK", str);
+            let cb = (strToCheck, strFiltered) => {
+                if (strToCheck == str) {
+                    resolve(strFiltered);
+                    m_ProfanityListener.off("PROFANITY_FILTER_RESULT", cb);
+                }
+            };
+            m_ProfanityListener.on("PROFANITY_FILTER_RESULT", cb);
+        });
     }
     Utils.filterProfanity = filterProfanity;
     function Translate(key) {
+        if (!isNaN(parseFloat(key)))
+            return key;
         if (debugLocalization != null && debugLocalization === true)
             return "";
         if (key == null || key === "")
@@ -924,6 +1155,12 @@ var Utils;
             g_localization.AddTextVariable(varName, value);
     }
     Utils.SetTextVariable = SetTextVariable;
+    function RemoveTextVariable(varName) {
+        let g_localization = window.top["g_localization"];
+        if (g_localization)
+            g_localization.RemoveTextVariable(varName);
+    }
+    Utils.RemoveTextVariable = RemoveTextVariable;
     function SecondsToDisplayDuration(totalSeconds, withMinutes, withSeconds, doLocalize = true) {
         if (doLocalize) {
             let g_localization = window.top["g_localization"];
@@ -994,17 +1231,24 @@ var Utils;
     }
     Utils.doesFileExist = doesFileExist;
     function loadFile(file, callbackSuccess) {
-        let httpRequest = new XMLHttpRequest();
-        httpRequest.onreadystatechange = function (data) {
-            if (this.readyState === XMLHttpRequest.DONE) {
-                let loaded = this.status === 200 || this.status === 0;
-                if (loaded) {
-                    callbackSuccess(this.responseText);
+        return new Promise((resolve, reject) => {
+            let httpRequest = new XMLHttpRequest();
+            httpRequest.onreadystatechange = function (data) {
+                if (this.readyState === XMLHttpRequest.DONE) {
+                    let loaded = this.status === 200 || this.status === 0;
+                    if (loaded) {
+                        resolve(this.responseText);
+                        if (callbackSuccess instanceof Function)
+                            callbackSuccess(this.responseText);
+                    }
+                    else {
+                        reject(new Error("Unable to load file, got HTTP " + this.status));
+                    }
                 }
-            }
-        };
-        httpRequest.open("GET", file);
-        httpRequest.send();
+            };
+            httpRequest.open("GET", file);
+            httpRequest.send();
+        });
     }
     Utils.loadFile = loadFile;
     function slowDeepClone(object) {
@@ -1028,17 +1272,22 @@ var Utils;
             _value = Number(_value.toFixed(_pointFixed));
         let i = 1;
         while (i <= _nbDigits) {
+            let sign = Math.sign(_value);
+            let absValue = Math.abs(_value);
             let max = Math.pow(10, i);
-            if (_value < max) {
+            if (absValue < max) {
                 let result = "";
+                if (sign < 0) {
+                    result += "-";
+                }
                 while (i < _nbDigits) {
                     result += "0";
                     i++;
                 }
                 if (_pointFixed >= 0)
-                    result += _value.toFixed(_pointFixed);
+                    result += absValue.toFixed(_pointFixed);
                 else
-                    result += _value;
+                    result += absValue;
                 return result;
             }
             i++;
@@ -1048,12 +1297,46 @@ var Utils;
         return _value.toString();
     }
     Utils.leadingZeros = leadingZeros;
+    function decimalDegreesToDMS(decimalDegrees, leadingZeros = 0, maxDigits = 0, signed = false) {
+        let dd = Math.abs(decimalDegrees);
+        let degrees = Math.trunc(dd);
+        let minutes = Math.floor((dd - degrees) * 60);
+        let seconds = (dd - degrees - minutes / 60) * 3600;
+        return ((signed && decimalDegrees < 0) ? "-" : "") + Utils.leadingZeros(degrees, leadingZeros) + "°" + Utils.leadingZeros(minutes, leadingZeros) + "'" + Utils.leadingZeros(seconds, leadingZeros, maxDigits) + "\"";
+    }
+    Utils.decimalDegreesToDMS = decimalDegreesToDMS;
     function countDecimals(_step) {
         var text = _step.toString();
         var index = text.indexOf(".");
         return index == -1 ? 0 : (text.length - index - 1);
     }
     Utils.countDecimals = countDecimals;
+    function preLoadDeviceIcons(subPath, imgNameList) {
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            loadIcon(subPath, imgNameList);
+        }
+        else
+            document.addEventListener('DOMContentLoaded', loadIcon.bind(null, subPath, imgNameList), { once: true });
+    }
+    Utils.preLoadDeviceIcons = preLoadDeviceIcons;
+    function loadIcon(subPath, imgNameList) {
+        const iconList = document.createElement('div');
+        document.body.appendChild(iconList);
+        const promises = [];
+        for (let i = 0; i < imgNameList.length; i++) {
+            promises.push(new Promise(resolve => {
+                let preloadIcon = document.createElement('device-button');
+                preloadIcon.addEventListener('iconElementLoaded', () => {
+                    resolve();
+                });
+                preloadIcon.setData(subPath, imgNameList[i], '');
+                iconList.appendChild(preloadIcon);
+            }));
+        }
+        Promise.all(promises).then(() => {
+            document.body.removeChild(iconList);
+        });
+    }
 })(Utils || (Utils = {}));
 function SetBackgroundImage(img) {
     Coherent.trigger("SET_BACKGROUND_IMAGE", img);
@@ -1239,16 +1522,23 @@ function InstanciateTemplate(parent, selector) {
         }
         helper = window.document.createElement('div');
         helper.id = helperID;
+        TemplateElement.copyAttributes(template, helper);
         helper.innerHTML = template.textContent;
     }
     return helper;
 }
+var UINavigationMode;
+(function (UINavigationMode) {
+    UINavigationMode[UINavigationMode["None"] = -1] = "None";
+    UINavigationMode[UINavigationMode["Mouse"] = 0] = "Mouse";
+    UINavigationMode[UINavigationMode["Keys"] = 1] = "Keys";
+    UINavigationMode[UINavigationMode["CursorPad"] = 2] = "CursorPad";
+    UINavigationMode[UINavigationMode["PadSnap"] = 3] = "PadSnap";
+})(UINavigationMode || (UINavigationMode = {}));
 class UINavigation {
     static get lockFocus() { return window.top["LockFocus"] === true; }
     static set lockFocus(val) { window.top["LockFocus"] = val; }
     static get previous() {
-        if (window.document.body.hasAttribute("no-previous-button"))
-            return null;
         let previous = window.top["previousUIElement"];
         if (previous && previous.canBeSelectedWithKeys() && previous.isChildOf(document.body))
             return previous;
@@ -1258,8 +1548,6 @@ class UINavigation {
         return window.top["previousUIElement"];
     }
     static set previous(elem) {
-        if (window.document.body.hasAttribute("no-previous-button"))
-            return;
         window.top["previousUIElement"] = elem;
     }
     static get current() {
@@ -1274,28 +1562,76 @@ class UINavigation {
             return elem;
         return null;
     }
+    static get myExclusiveFocusGuid() {
+        if (!UINavigation.m_myExclusiveFocusGuid) {
+            UINavigation.m_myExclusiveFocusGuid = Utils.generateGUID() + ':' + document.title;
+        }
+        return UINavigation.m_myExclusiveFocusGuid;
+    }
+    static set currentExclusiveFocusGuid(guid) {
+        UINavigation.m_currentExclusiveFocusGuid = guid;
+        if (!UINavigation.canFocusProximity) {
+            UINavigation.clearCurrentClosest();
+        }
+    }
+    static get currentExclusiveFocusGuid() {
+        return UINavigation.m_currentExclusiveFocusGuid;
+    }
+    static get canFocusProximity() {
+        return UINavigation.currentExclusiveFocusGuid == "" || UINavigation.currentExclusiveFocusGuid == UINavigation.myExclusiveFocusGuid;
+    }
+    static get hasFocus() {
+        return UINavigation.currentExclusiveFocusGuid == UINavigation.myExclusiveFocusGuid;
+    }
     static askGrabKeys() {
         Coherent.trigger("ASK_GRAB_KEYS");
     }
     static releaseKeys() {
         Coherent.trigger("ASK_RELEASE_KEYS");
     }
-    static set current(elem) {
-        if (UINavigation.currentRaw && UINavigation.currentRaw != elem) {
-            let parent = UINavigation.currentRaw.parentElement;
-            while (parent) {
-                let parentUI = UIElement.getUIElement(parent);
-                if (parentUI) {
-                    parentUI.onActiveChildBlurred(UINavigation.currentRaw);
-                }
-                parent = parent.parentElement;
-            }
+    static addPadSelectable(elt) {
+        UINavigation.m_padSelectables.push(elt);
+    }
+    static removePadSelectable(elt) {
+        let eltIndex = UINavigation.m_padSelectables.indexOf(elt);
+        if (eltIndex >= 0) {
+            UINavigation.m_padSelectables.splice(eltIndex, 1);
         }
+    }
+    static OnButtonFocus(target) {
+        if (target) {
+            let clientRect = target.getBoundingClientRect();
+            Coherent.trigger("BUTTON_FOCUS", clientRect.left + clientRect.width * 0.5, clientRect.top + clientRect.height * 0.5);
+        }
+    }
+    static OnButtonBlur() {
+        Coherent.trigger("BUTTON_BLUR");
+    }
+    static forcePadCursorPositionOnDefaultButton() {
+        let target = UINavigation.getDefaultButton(document.body);
+        if (target)
+            UINavigation.forcePadCursorPosition(target);
+    }
+    static forcePadCursorPosition(target) {
+        if (target) {
+            let pos = Vec2.FromRect(target.getBoundingClientRect());
+            Coherent.trigger('FORCE_PAD_CURSOR_POSITION', pos.x, pos.y);
+        }
+        else {
+            console.error("forcePadCursorPosition target is null");
+        }
+    }
+    static set current(elem) {
+        if (elem === UINavigation.current)
+            return;
         if (elem && !elem.canBeSelectedWithKeys())
             return;
+        if (UINavigation.currentRaw == elem)
+            return;
         let previous = UINavigation.currentRaw;
-        if (UINavigation.currentRaw)
+        if (UINavigation.currentRaw) {
             UINavigation.previous = UINavigation.currentRaw;
+        }
         if (!isWindowEnabled()) {
             window.top["activeUIElement"] = null;
         }
@@ -1303,16 +1639,34 @@ class UINavigation {
             window.top["activeUIElement"] = elem;
         }
         if (previous && previous != elem) {
-            previous.unFocusByKeys();
+            UINavigation.OnButtonBlur();
+            previous.blur();
         }
-        if (UINavigation.current) {
-            let parent = UINavigation.current.parentElement;
-            while (parent) {
-                let parentUI = UIElement.getUIElement(parent);
-                if (parentUI) {
-                    parentUI.onActiveChildFocused(UINavigation.current);
+        let previousElem = UINavigation.previous;
+        let currentElem = UINavigation.current;
+        UINavigation.OnButtonFocus(elem);
+        if (currentElem) {
+            if (currentElem.shouldDispatchChildActive()) {
+                let parent = currentElem.parentElement;
+                while (parent) {
+                    let parentUI = UIElement.getUIElement(parent);
+                    if (parentUI) {
+                        parentUI.onActiveChildFocused(currentElem);
+                    }
+                    parent = parent.parentElement;
                 }
-                parent = parent.parentElement;
+            }
+        }
+        if (previousElem) {
+            if (previousElem.shouldDispatchChildActive()) {
+                let parent = previousElem.parentElement;
+                while (parent) {
+                    let parentUI = UIElement.getUIElement(parent);
+                    if (parentUI) {
+                        parentUI.onActiveChildBlurred(UINavigation.currentRaw);
+                    }
+                    parent = parent.parentElement;
+                }
             }
         }
         window.dispatchEvent(new Event("currentActiveElementChanged"));
@@ -1343,6 +1697,49 @@ class UINavigation {
                 cons.innerText = "";
         }
     }
+    static get MouseMode() {
+        return UINavigation.m_navigationMode == UINavigationMode.Mouse;
+    }
+    static get PadCursorMode() {
+        return UINavigation.m_navigationMode == UINavigationMode.CursorPad;
+    }
+    static set NavigationMode(mode) {
+        UINavigation.m_navigationMode = mode;
+    }
+    static get NavigationMode() {
+        return UINavigation.m_navigationMode;
+    }
+    static switchNativigationMode(mode) {
+        if (mode == UINavigation.NavigationMode) {
+            return;
+        }
+        UINavigation.leaveCurrentNavigationMode();
+        switch (mode) {
+            case UINavigationMode.Mouse:
+                UINavigation.enterMouseMode();
+                break;
+            case UINavigationMode.Keys:
+                UINavigation.enterKeysMode();
+                break;
+            case UINavigationMode.CursorPad:
+            case UINavigationMode.PadSnap:
+                UINavigation.enterCursorMode(mode);
+                break;
+        }
+    }
+    static leaveCurrentNavigationMode() {
+        switch (UINavigation.NavigationMode) {
+            case UINavigationMode.Mouse:
+                break;
+            case UINavigationMode.Keys:
+                UINavigation.disableKeyNavigation();
+                break;
+            case UINavigationMode.CursorPad:
+            case UINavigationMode.PadSnap:
+                UINavigation.exitCursorMode();
+                break;
+        }
+    }
     static addMouseModeEventListener(callback) {
         window.addEventListener("onmousemode", callback);
     }
@@ -1355,15 +1752,464 @@ class UINavigation {
     static removeKeysModeEventListener(callback) {
         window.removeEventListener("onkeysmode", callback);
     }
-    static enterMouseMode() {
-        if (!UINavigation.m_mouseMode) {
-            UINavigation.m_mouseMode = true;
-            UINavigation.current = null;
-            Utils.dispatchToAllWindows(new Event("onmousemode"));
+    static enterCursorMode(mode) {
+        if (UINavigation.PadCursorMode)
+            return;
+        UINavigation.NavigationMode = UINavigationMode.CursorPad;
+        UINavigation.m_cursorMode = mode;
+        window.dispatchEvent(new Event("updateExternal:cursorModeOn"));
+        if (mode == 2) {
+            window.addEventListener("mousemove", UINavigation.checkButtonsProximity);
+        }
+        else {
+            Coherent.on("RequestClosestRect", UINavigation.requestClosest);
+            window.addEventListener("mousemove", UINavigation.focusUnderMouse);
+        }
+        let body = document.querySelector('body');
+        if (body)
+            body.addEventListener('mouseleave', UINavigation.clearOnMouseLeaveView);
+        Coherent.on("cursorClick", UINavigation.validateProximity);
+    }
+    static exitCursorMode() {
+        window.dispatchEvent(new Event("updateExternal:cursorModeOff"));
+        UINavigation.clearCurrentClosest();
+        if (UINavigation.m_cursorMode == 2) {
+            window.removeEventListener("mousemove", UINavigation.checkButtonsProximity);
+        }
+        else {
+            Coherent.off("RequestClosestRect", UINavigation.requestClosest);
+            window.removeEventListener("mousemove", UINavigation.focusUnderMouse);
+        }
+        let body = document.querySelector('body');
+        if (body)
+            body.removeEventListener('mouseleave', UINavigation.clearOnMouseLeaveView);
+        Coherent.off("cursorClick", UINavigation.validateProximity);
+        Coherent.off("RequestClosestRect", UINavigation.requestClosest);
+        window.dispatchEvent(new Event("resetPadScroll"));
+        if (UINavigation.PadCursorMode)
+            UINavigation.NavigationMode = UINavigationMode.None;
+        UINavigation.m_cursorMode = 0;
+    }
+    static isSelectableElement(elt) {
+        if (!elt)
+            return false;
+        let buttonElement = elt;
+        if (!buttonElement)
+            return false;
+        if (!buttonElement.padInteractive)
+            return false;
+        if (!buttonElement.interactive)
+            return false;
+        if (buttonElement.locked)
+            return false;
+        if (buttonElement instanceof UINavigationBlocElement) {
+            return elt.padInteractive;
+        }
+        return buttonElement.hasMouseOver || (UINavigation.PadCursorMode && buttonElement.padInteractive);
+    }
+    static findSelectableElement(elt) {
+        let cur = elt;
+        while (cur) {
+            if (UINavigation.isSelectableElement(cur)) {
+                return cur;
+            }
+            cur = cur.parentElement;
+        }
+        return null;
+    }
+    static set currentPadCursorHoverElement(elt) {
+        if (UINavigation.m_currentPadCursorHoverElement == elt) {
+            return;
+        }
+        UINavigation.m_currentPadCursorHoverElement = elt;
+        window.dispatchEvent(new Event("currentPadCursorHoverElementChanged"));
+    }
+    static get currentPadCursorHoverElement() {
+        return UINavigation.m_currentPadCursorHoverElement;
+    }
+    static updateCurrentPadCursorHoverElement(e) {
+        let elementUnderMouse = document.elementFromPoint(e.clientX, e.clientY);
+        if (elementUnderMouse) {
+            let cur = elementUnderMouse;
+            while (cur) {
+                if (cur instanceof UIElement) {
+                    UINavigation.currentPadCursorHoverElement = cur;
+                    break;
+                }
+                cur = cur.parentElement;
+            }
+        }
+        else {
+            UINavigation.currentPadCursorHoverElement = null;
         }
     }
+    static focusUnderMouse(e) {
+        let mx = e.clientX;
+        let my = e.clientY;
+        let elementUnderMouse = document.elementFromPoint(mx, my);
+        let selectableUnderMouse = UINavigation.findSelectableElement(elementUnderMouse);
+        if (!UINavigation.hasFocus && elementUnderMouse && elementUnderMouse.closest('ingame-ui')) {
+            UINavigation.currentExclusiveFocusGuid = UINavigation.myExclusiveFocusGuid;
+            Coherent.trigger('TAKE_EXCLUSIVE_FOCUS', UINavigation.myExclusiveFocusGuid);
+        }
+        if (elementUnderMouse && elementUnderMouse.closest("virtual-scroll")) {
+            UINavigation.currentPadCursorHoverElement = elementUnderMouse;
+        }
+        else {
+            if (selectableUnderMouse) {
+                UINavigation.currentPadCursorHoverElement = selectableUnderMouse;
+            }
+            else {
+                UINavigation.updateCurrentPadCursorHoverElement(e);
+            }
+        }
+    }
+    static checkButtonsProximity(e) {
+        if (!UINavigation.m_TestPoints) {
+            let nbPoints = 16;
+            let angleSection = Math.PI * 2 / nbPoints;
+            UINavigation.m_TestPoints = [];
+            for (let i = 0; i < nbPoints; i++) {
+                let angle = i * angleSection;
+                UINavigation.m_TestPoints.push(new Vec2(Math.cos(angle), Math.sin(angle)));
+            }
+        }
+        let radius = g_externalVariables.cursorSize * window.innerHeight || 10;
+        let mx = e.clientX;
+        let my = e.clientY;
+        let ctx = null;
+        bDebugCursor = false;
+        if (bDebugCursor) {
+            if (!this.m_mouseDebug) {
+                this.m_mouseDebug = document.createElement("canvas");
+                this.m_mouseDebug.setAttribute("style", "position: absolute; left: 0px; top: 0px; bottom: 0px; right: 0px; display: block; width:100%; height:100%; pointer-events:none;");
+                this.m_mouseDebug.setAttribute("width", window.innerWidth + "px");
+                this.m_mouseDebug.setAttribute("height", window.innerHeight + "px");
+                document.body.appendChild(this.m_mouseDebug);
+            }
+            ctx = this.m_mouseDebug.getContext('2d');
+            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            ctx.beginPath();
+            ctx.strokeStyle = "blue";
+            ctx.arc(mx, my, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = "blue";
+        }
+        let elementUnderMouse = document.elementFromPoint(mx, my);
+        let selectableUnderMouse = UINavigation.findSelectableElement(elementUnderMouse);
+        let lookAround = !UINavigation.isSelectableElement(selectableUnderMouse);
+        if (lookAround && UINavigation.hasFocus) {
+            Coherent.trigger('RESET_EXCLUSIVE_FOCUS', UINavigation.myExclusiveFocusGuid);
+        }
+        else if (!lookAround && !UINavigation.hasFocus) {
+            UINavigation.currentExclusiveFocusGuid = UINavigation.myExclusiveFocusGuid;
+            Coherent.trigger('TAKE_EXCLUSIVE_FOCUS', UINavigation.myExclusiveFocusGuid);
+        }
+        let drad = 8;
+        let closestAround;
+        let bDebugStr = false;
+        let debugStr;
+        if (bDebugStr)
+            debugStr = "*** checkButtonsProximity summary ***\nlookAround:" + lookAround;
+        if (lookAround) {
+            selectableUnderMouse = null;
+            let foundElements = [];
+            for (let ptRef of UINavigation.m_TestPoints) {
+                let ptX = mx + ptRef.x * radius;
+                let ptY = my + ptRef.y * radius;
+                let elementUnder = document.elementFromPoint(ptX, ptY);
+                let isUnderPoint = false;
+                if (elementUnder) {
+                    let possibleClosestAround = UINavigation.findSelectableElement(elementUnder);
+                    if (!possibleClosestAround) {
+                        if (debugStr)
+                            debugStr += "\n(" + ptRef.x + "," + ptRef.y + ") no closest found -> ";
+                        continue;
+                    }
+                    if (!UINavigation.isSelectableElement(possibleClosestAround)) {
+                        if (bDebugStr)
+                            debugStr += "\n" + possibleClosestAround.tagName + "(" + ptRef.x + "," + ptRef.y + ") is not a real button -> ";
+                        continue;
+                    }
+                    closestAround = possibleClosestAround;
+                    isUnderPoint = true;
+                    if (bDebugStr)
+                        debugStr += "\n" + closestAround.tagName + "(" + ptRef.x + "," + ptRef.y + ") found -> ";
+                    if (ctx) {
+                        ctx.strokeStyle = "green";
+                        let rect = closestAround.getBoundingClientRect();
+                        ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+                    }
+                }
+                else {
+                    if (bDebugStr)
+                        debugStr += "\n(" + ptRef.x + "," + ptRef.y + ") nothing found -> ";
+                }
+                if (ctx) {
+                    if (isUnderPoint) {
+                        ctx.strokeStyle = "green";
+                        ctx.strokeRect(ptX - drad * 0.5, ptY - drad * 0.5, drad, drad);
+                    }
+                    else {
+                        ctx.strokeStyle = "red";
+                        ctx.strokeRect(ptX - drad * 0.5, ptY - drad * 0.5, drad, drad);
+                    }
+                }
+                if (isUnderPoint) {
+                    foundElements.push(closestAround);
+                }
+            }
+            let center = new Vec2(mx, my);
+            let closestIndex = 0;
+            let maxDistance = Number.MAX_VALUE;
+            let curIndex = 0;
+            for (let elt of foundElements) {
+                let pointPos = Vec2.FromRect(elt.getBoundingClientRect());
+                let distance = pointPos.SqrDistance(center);
+                if (distance < maxDistance) {
+                    maxDistance = distance;
+                    closestIndex = curIndex;
+                }
+                curIndex++;
+            }
+            closestAround = foundElements[closestIndex];
+        }
+        if (bDebugStr)
+            debugStr += "\nselection result selectableUnderMouse:" + (selectableUnderMouse ? selectableUnderMouse.tagName : "none") + " closestAround: " + (closestAround ? closestAround.tagName : "none");
+        if (!selectableUnderMouse && !closestAround) {
+            UINavigation.clearCurrentClosest();
+            UINavigation.updateCurrentPadCursorHoverElement(e);
+            return;
+        }
+        else {
+            let closestTarget;
+            if (closestAround && !selectableUnderMouse && UINavigation.canFocusProximity) {
+                closestTarget = closestAround;
+            }
+            else {
+                closestTarget = selectableUnderMouse;
+            }
+            if (closestTarget == UINavigation.m_currentClosest) {
+                UINavigation.updateCurrentPadCursorHoverElement(e);
+                return;
+            }
+            if (closestTarget) {
+                closestTarget.classList.add("CloseToMouse");
+                if (bDebugStr)
+                    debugStr += "\nfocus on " + closestTarget.tagName;
+                closestTarget.focus();
+                UINavigation.m_currentClosest = closestTarget;
+                UINavigation.currentPadCursorHoverElement = closestTarget;
+            }
+            else {
+                UINavigation.updateCurrentPadCursorHoverElement(e);
+            }
+        }
+        if (bDebugStr) {
+            console.log(debugStr);
+        }
+    }
+    static isSelectionableInHtmlTree(elt) {
+        let cur = elt;
+        while (cur) {
+            if (cur.classList.contains('disabled')
+                || cur.classList.contains('greyed-notif')
+                || cur.classList.contains('greyed-popup')
+                || cur.classList.contains('flowbar-obstruct')) {
+                return false;
+            }
+            if (cur instanceof UIElement) {
+                let curUIElement = cur;
+                if (!curUIElement.isVisible) {
+                    return false;
+                }
+            }
+            if (cur.tagName == 'VIRTUAL-SCROLL') {
+                if (!Utils.isRectInRect(elt.getBoundingClientRect(), cur.getBoundingClientRect())) {
+                    return false;
+                }
+            }
+            cur = cur.parentElement;
+        }
+        return true;
+    }
+    static isSelectionableInHtmlTreeDebug(elt) {
+        let cur = elt;
+        while (cur) {
+            if (cur.classList.contains('disabled')
+                || cur.classList.contains('greyed-notif')
+                || cur.classList.contains('greyed-popup')
+                || cur.classList.contains('flowbar-obstruct')) {
+                return [false, 'parent has disabled or greyed or obstruct'];
+            }
+            if (cur instanceof UIElement) {
+                let curUIElement = cur;
+                if (!curUIElement.isVisible) {
+                    return [false, 'parent is not visible'];
+                }
+            }
+            if (cur.tagName == 'VIRTUAL-SCROLL') {
+                if (!Utils.isRectInRect(elt.getBoundingClientRect(), cur.getBoundingClientRect())) {
+                    let reason = 'scroll ' + UINavigation.TagPath(cur);
+                    return [false, reason];
+                }
+            }
+            cur = cur.parentElement;
+        }
+        return [true, 'ok'];
+    }
+    static findClosestButtonElement(mx, my) {
+        let radius = g_externalVariables.cursorSize * window.innerHeight || 10;
+        let closestArray = [];
+        let center = new Vec2(mx, my);
+        let maxDistance = radius * radius;
+        let ctx = null;
+        let bEnableDebug = false;
+        let bEnableDebugDisplayAllRect = false;
+        let bEnableDebugFindSelectable = false;
+        if (bEnableDebug) {
+            if (!this.m_mouseDebug) {
+                this.m_mouseDebug = document.createElement("canvas");
+                this.m_mouseDebug.setAttribute("style", "position: absolute; left: 0px; top: 0px; bottom: 0px; right: 0px; display: block; width:100%; height:100%; pointer-events:none;");
+                this.m_mouseDebug.setAttribute("width", window.innerWidth + "px");
+                this.m_mouseDebug.setAttribute("height", window.innerHeight + "px");
+                document.body.appendChild(this.m_mouseDebug);
+            }
+            ctx = this.m_mouseDebug.getContext('2d');
+        }
+        if (ctx) {
+            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        }
+        let filteredArray = UINavigation.FilterRectsInsideRadius(UINavigation.m_padSelectables, center, maxDistance);
+        filteredArray.forEach((cur) => {
+            if (cur.tabIndex < 0)
+                return;
+            if (!UINavigation.isSelectableElement(cur))
+                return;
+            let rect = cur.getBoundingClientRect();
+            let pos = Vec2.FromRect(rect);
+            if (ctx && bEnableDebugDisplayAllRect) {
+                ctx.strokeStyle = "cyan";
+                ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+                ctx.font = "20px Arial";
+                ctx.fillStyle = "cyan";
+                ctx.fillText("mouse:" + center.x + "," + center.y + " rc:" + pos.x + "," + pos.y + " rect:" + rect.left + "," + rect.top + "," + rect.width + "," + rect.height, rect.left + 10, pos.y);
+            }
+            let selectionable = false;
+            if (ctx && bEnableDebugFindSelectable) {
+                let isSelectionableResult = UINavigation.isSelectionableInHtmlTreeDebug(cur);
+                selectionable = isSelectionableResult[0];
+                let reason = isSelectionableResult[1];
+                ctx.strokeStyle = "red";
+                ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+                ctx.font = "20px Arial";
+                ctx.fillStyle = "cyan";
+                ctx.fillText("not visible: " + reason, rect.left + 10, pos.y);
+            }
+            else {
+                selectionable = UINavigation.isSelectionableInHtmlTree(cur);
+            }
+            if (!selectionable) {
+                return;
+            }
+            if (pos.x <= 0 && pos.y <= 0)
+                return;
+            closestArray.push(cur);
+            if (ctx) {
+                UINavigation.DrawDebugLine(ctx, center, pos, "green");
+            }
+        });
+        if (closestArray.length > 0) {
+            closestArray.forEach((closest) => {
+                let rect = closest.getBoundingClientRect();
+                Coherent.trigger('CLOSEST_BUTTON', document.URL, UINavigation.TagPath(closest), rect.left, rect.top, rect.right, rect.bottom, !closest.classList.contains(closest.notHighlightableClassName));
+            });
+        }
+        else {
+            Coherent.trigger('NO_CLOSEST_BUTTON');
+        }
+    }
+    static FilterRectsInsideRadius(array, center, sqrRadius) {
+        let filteredArray = new Array();
+        for (var i = 0; i < array.length; i++) {
+            if (center.RectSqrDistance(array[i].getBoundingClientRect()) < sqrRadius) {
+                filteredArray.push(array[i]);
+            }
+        }
+        return filteredArray;
+    }
+    static TagPath(elt) {
+        let result = elt.tagName;
+        let parent = elt.parentElement;
+        while (parent) {
+            result = result + ':' + parent.tagName;
+            parent = parent.parentElement;
+        }
+        return result;
+    }
+    static DrawDebugLine(ctx, from, to, color) {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.lineWidth = 3;
+        ctx.stroke();
+    }
+    static DrawDebugCircle(ctx, center, radius, color, isFilled) {
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.closePath();
+        if (isFilled) {
+            ctx.fill();
+        }
+        ctx.stroke();
+    }
+    static clearCurrentClosest() {
+        if (!UINavigation.m_currentClosest)
+            return;
+        UINavigation.m_currentClosest.classList.remove("CloseToMouse");
+        if (UINavigation.m_currentClosest.focused) {
+            UINavigation.m_currentClosest.blur();
+        }
+        UINavigation.m_currentClosest = null;
+    }
+    static validateProximity(e) {
+        if (!UINavigation.PadCursorMode) {
+            console.error('validateProximity should not be called when m_navigationMode is ' + UINavigation.m_navigationMode);
+            return;
+        }
+        if (UINavigation.m_currentClosest && UINavigation.m_currentClosest instanceof ButtonElement) {
+            UINavigation.m_currentClosest.padValidate();
+        }
+    }
+    static clearOnMouseLeaveView(e) {
+        UINavigation.clearCurrentClosest();
+        UINavigation.current = null;
+        UINavigation.currentPadCursorHoverElement = null;
+        window.dispatchEvent(new Event("resetPadScroll"));
+    }
+    static clearNonFocusedPanel() {
+        UINavigation.clearCurrentClosest();
+        UINavigation.current = null;
+        if (UINavigation.currentPadCursorHoverElement) {
+            UINavigation.currentPadCursorHoverElement.blur();
+        }
+        UINavigation.currentPadCursorHoverElement = null;
+        window.dispatchEvent(new Event("resetPadScroll"));
+    }
+    static enterMouseMode() {
+        if (UINavigation.MouseMode)
+            return;
+        UINavigation.NavigationMode = UINavigationMode.Mouse;
+        UINavigation.current = null;
+        Utils.dispatchToAllWindows(new Event("onmousemode"));
+    }
     static onKeyDown(e) {
-        if (!UINavigation.current && !UINavigation.m_mouseMode) {
+        if (!UINavigation.KeysMode)
+            return;
+        if (!UINavigation.current) {
             if ([KeyCode.KEY_LEFT, KeyCode.KEY_RIGHT, KeyCode.KEY_UP, KeyCode.KEY_DOWN].includes(e.keyCode)) {
                 UINavigation.enterKeysMode();
             }
@@ -1380,89 +2226,130 @@ class UINavigation {
                 document.activeElement.blur();
         }
     }
-    static get KeysMode() {
-        return !this.m_mouseMode;
+    static setPageVisible(val) {
+        UINavigation.m_pageVisible = val;
     }
-    static getDefaultButton(doc = null) {
-        if (!doc)
-            doc = document;
-        let defaultButton = null;
-        let focused = doc.querySelector(".Focused");
+    static isPageVisible() {
+        return UINavigation.m_pageVisible;
+    }
+    static get KeysMode() {
+        return UINavigation.m_navigationMode == UINavigationMode.Keys;
+    }
+    static get CursorMode() {
+        return UINavigation.m_navigationMode == UINavigationMode.CursorPad;
+    }
+    static findFocusedUIElement(root) {
+        let focused = root.querySelector(".Focused");
         if (focused) {
-            defaultButton = UIElement.getUIElement(focused);
-        }
-        if (!defaultButton) {
-            let allDefaultButtons = doc.querySelectorAll("[default-button]");
-            if (bDebugKeyNavigation) {
-                console.warn("allDefaultButtons for " + doc.URL, allDefaultButtons);
+            let uiElem = UIElement.getUIElement(focused);
+            if (uiElem && uiElem.canBeSelectedWithKeys()) {
+                return uiElem;
             }
-            for (let button of allDefaultButtons) {
-                let uiElem = UIElement.getUIElement(button);
-                if (uiElem) {
-                    if (uiElem.canBeSelectedWithKeys()) {
-                        defaultButton = uiElem;
-                        break;
-                    }
-                    else if (uiElem.getDefaultChildButton()) {
-                        defaultButton = uiElem.getDefaultChildButton();
-                        if (defaultButton) {
-                            break;
-                        }
+        }
+    }
+    static findDefaultUIElement(root, startFromLast = false) {
+        let allDefaultButtons = root.querySelectorAll("[default-button]");
+        if (bDebugKeyNavigation) {
+            console.warn("allDefaultButtons for ", root, allDefaultButtons);
+        }
+        let elementCount = allDefaultButtons.length;
+        for (let i = startFromLast ? elementCount - 1 : 0; startFromLast ? i >= 0 : i < elementCount; startFromLast ? i-- : i++) {
+            let button = allDefaultButtons[i];
+            let uiElem = UIElement.getUIElement(button);
+            if (uiElem) {
+                if (uiElem.canBeSelectedWithKeys()) {
+                    return uiElem;
+                }
+                else if (uiElem.getDefaultChildButton()) {
+                    let childUiElem = uiElem.getDefaultChildButton();
+                    if (childUiElem && childUiElem.canBeSelectedWithKeys()) {
+                        return childUiElem;
                     }
                 }
             }
         }
-        if (!defaultButton) {
-            let selected = doc.querySelector(".selected:not(.disabled), .Selected:not(.disabled)");
-            if (selected) {
-                defaultButton = UIElement.getUIElement(selected);
-                if (defaultButton && !defaultButton.canBeSelectedWithKeys())
-                    defaultButton = null;
+    }
+    static findSelectedUIElement(root) {
+        let selected = root.querySelector(".selected:not(.disabled), .Selected:not(.disabled)");
+        if (selected) {
+            let uiElem = UIElement.getUIElement(selected);
+            if (uiElem && uiElem.canBeSelectedWithKeys()) {
+                return uiElem;
             }
         }
-        if (!defaultButton) {
-            let allDefaultButtons = doc.querySelectorAll("[default-child-button]");
-            for (let parentButton of allDefaultButtons) {
-                let defChild = parentButton.querySelector(parentButton.getAttribute("default-child-button"));
-                if (defChild) {
-                    let uielem = UIElement.getUIElement(defChild);
-                    if (uielem && uielem.canBeSelectedWithKeys()) {
-                        defaultButton = uielem;
-                        break;
-                    }
+    }
+    static findDefaultChildUIElement(root, startFromLast = false) {
+        let allDefaultButtons = [...(root.hasAttribute("default-child-button") ? [root] : []), ...root.querySelectorAll("[default-child-button]")];
+        let elementCount = allDefaultButtons.length;
+        for (let i = startFromLast ? elementCount - 1 : 0; startFromLast ? i >= 0 : i < elementCount; startFromLast ? i-- : i++) {
+            let parentButton = allDefaultButtons[i];
+            let defChild = parentButton.querySelector(parentButton.getAttribute("default-child-button"));
+            if (defChild) {
+                let uiElem = UIElement.getUIElement(defChild);
+                if (uiElem && uiElem.canBeSelectedWithKeys()) {
+                    return uiElem;
                 }
             }
         }
-        if (!defaultButton || !defaultButton.canBeSelectedWithKeys()) {
-            let selectedButton = doc.querySelector(".selected");
-            if (selectedButton && UIElement.getUIElement(selectedButton)) {
-                defaultButton = selectedButton;
+    }
+    static findSelectedParentUIElement(root) {
+        let selectedButton = root.querySelector(".selected");
+        if (selectedButton && UIElement.getUIElement(selectedButton)) {
+            let uiElem = selectedButton;
+            if (uiElem && uiElem.canBeSelectedWithKeys())
+                return uiElem;
+        }
+    }
+    static findTabIndexUIElement(root) {
+        let allSelectable = Array.from(root.querySelectorAll('[tabindex]'));
+        for (let testButton of allSelectable) {
+            if (testButton.tabIndex >= 0) {
+                if (testButton["canBeSelectedWithKeys"] == undefined) {
+                    console.error("testButton.canBeSelectedWithKeys not defined for ", testButton);
+                    continue;
+                }
             }
-            if (defaultButton && !defaultButton.canBeSelectedWithKeys())
-                defaultButton = null;
-            if (!defaultButton) {
-                let allSelectable = Array.from(doc.querySelectorAll('[tabindex]'));
-                for (let testButton of allSelectable) {
-                    if (testButton.tabIndex >= 0) {
-                        if (testButton["canBeSelectedWithKeys"] == undefined) {
-                            console.error("testButton.canBeSelectedWithKeys not defined for ", testButton);
-                            continue;
-                        }
-                    }
-                    if (testButton.tabIndex <= 0 || !testButton.canBeSelectedWithKeys())
-                        continue;
-                    let uiElem = UIElement.getUIElement(testButton);
-                    if (uiElem && !uiElem.disabled) {
-                        defaultButton = uiElem;
-                        break;
-                    }
+            if (testButton.tabIndex <= 0 || !testButton.canBeSelectedWithKeys())
+                continue;
+            let uiElem = UIElement.getUIElement(testButton);
+            if (uiElem && !uiElem.disabled) {
+                return uiElem;
+            }
+        }
+    }
+    static findFocusableUIElement(uiElem, startFromLast = false) {
+        let allFocusable = uiElem.getAllFocusableChildren();
+        let elementCount = allFocusable.length;
+        for (let i = startFromLast ? elementCount - 1 : 0; startFromLast ? i >= 0 : i < elementCount; startFromLast ? i-- : i++) {
+            let child = allFocusable[i];
+            let uiChild = UIElement.getUIElement(child);
+            if (uiChild && uiChild.canBeSelectedWithKeys()) {
+                let defaultButton = uiChild.getDefaultButton();
+                if (defaultButton && defaultButton.canBeSelectedWithKeys()) {
+                    if (bDebugKeyNavigation)
+                        console.warn("default button", uiElem, defaultButton);
+                    return defaultButton;
                 }
             }
         }
-        return defaultButton;
+    }
+    static getDefaultButton(root = null) {
+        if (!root)
+            root = document.body;
+        let defaultButton = this.findFocusedUIElement(root) ||
+            this.findDefaultUIElement(root) ||
+            this.findSelectedUIElement(root) ||
+            this.findDefaultChildUIElement(root) ||
+            this.findSelectedParentUIElement(root) ||
+            this.findTabIndexUIElement(root);
+        if (defaultButton) {
+            if (bDebugKeyNavigation)
+                console.warn("Found default button", defaultButton);
+            return defaultButton;
+        }
     }
     static canNavigate() {
-        if (!window.top["KEY_NAVIGATION"])
+        if (!UINavigation.KeysMode)
             return false;
         if (!isWindowEnabled())
             return false;
@@ -1471,20 +2358,24 @@ class UINavigation {
         return true;
     }
     static onShow() {
+        document.body.classList.remove("disappear");
+        UINavigation.setPageVisible(true);
         if (UINavigation.KeysMode) {
             let defButton = UINavigation.getDefaultButton();
-            if (defButton)
+            if (defButton) {
                 defButton.focusByKeys(0);
+            }
         }
     }
     static onHide() {
+        document.body.classList.add("disappear");
+        UINavigation.setPageVisible(false);
         UINavigation.previous = null;
         UINavigation.current = null;
     }
     static disableKeyNavigation() {
         if (!window.top)
             return;
-        window.top["KEY_NAVIGATION"] = false;
         if (!document)
             return;
         if (UINavigation.current) {
@@ -1498,16 +2389,6 @@ class UINavigation {
         if (bDebugKeyNavigation)
             console.warn("disableKeyNavigation");
     }
-    static enableKeyNavigation() {
-        if (window.top) {
-            window.top["KEY_NAVIGATION"] = true;
-        }
-        if (UINavigation.KeysMode) {
-            UINavigation.enterKeysMode();
-        }
-        if (bDebugKeyNavigation)
-            console.warn("enableKeyNavigation");
-    }
     static onKeyDownOnRoot(keycode) {
         if ([KeyCode.KEY_LEFT, KeyCode.KEY_RIGHT, KeyCode.KEY_UP, KeyCode.KEY_DOWN].includes(keycode)) {
             Coherent.trigger("ON_KEY_DOWN_ON_ROOT", keycode);
@@ -1518,16 +2399,15 @@ class UINavigation {
             return;
         if (!document)
             return;
-        let sendEvent = UINavigation.m_mouseMode;
-        UINavigation.m_mouseMode = false;
-        if (!window.top["KEY_NAVIGATION"]) {
-            if (bDebugKeyNavigation)
-                console.warn("KEY_NAVIGATION NOT ENABLED");
+        let sendEvent = !UINavigation.KeysMode;
+        UINavigation.NavigationMode = UINavigationMode.Keys;
+        if (!UINavigation.isPageVisible()) {
             return;
         }
         let defaultKeyReciever = document.querySelector("[default-key-reciever]");
         if (defaultKeyReciever) {
-            defaultKeyReciever.unregisterDefaultKeyEvents();
+            if (!defaultKeyReciever.canEnterKeysMode)
+                return false;
         }
         if (!UINavigation.canNavigate()) {
             if (bDebugKeyNavigation)
@@ -1545,24 +2425,29 @@ class UINavigation {
             UINavigation.current.focus();
         }
         else {
-            let defaultButton = UINavigation.getDefaultButton(window.top.document);
-            if (!defaultButton) {
-                for (let i = 0; i < window.top.frames.length; i++) {
-                    defaultButton = UINavigation.getDefaultButton(window.top.frames[i].document);
-                    if (defaultButton) {
-                        break;
-                    }
-                }
-            }
-            if (defaultButton) {
-                defaultButton.focusByKeys();
+            if (UINavigation.previous && !window.document.body.hasAttribute("no-previous-button")) {
+                UINavigation.previous.focus();
             }
             else {
-                if (bDebugKeyNavigation)
-                    console.warn("NO DEFAULT BUTTON");
-                if (defaultKeyReciever) {
-                    defaultKeyReciever.registerDefaultKeyEvents();
-                    defaultKeyReciever.focus();
+                let defaultButton = UINavigation.getDefaultButton(window.top.document.body);
+                if (!defaultButton) {
+                    for (let i = 0; i < window.top.frames.length; i++) {
+                        defaultButton = UINavigation.getDefaultButton(window.top.frames[i].document.body);
+                        if (defaultButton) {
+                            break;
+                        }
+                    }
+                }
+                if (defaultButton) {
+                    defaultButton.focusByKeys();
+                }
+                else {
+                    if (bDebugKeyNavigation)
+                        console.warn("NO DEFAULT BUTTON");
+                    if (defaultKeyReciever) {
+                        defaultKeyReciever.registerDefaultKeyEvents();
+                        defaultKeyReciever.focus();
+                    }
                 }
             }
         }
@@ -1571,12 +2456,20 @@ class UINavigation {
         }
     }
 }
-UINavigation.m_mouseMode = false;
+UINavigation.m_cursorMode = 0;
+UINavigation.m_myExclusiveFocusGuid = null;
+UINavigation.m_currentExclusiveFocusGuid = null;
+UINavigation.m_padSelectables = new Array();
+UINavigation.m_navigationMode = UINavigationMode.None;
+UINavigation.requestClosest = (x, y) => {
+    UINavigation.findClosestButtonElement(x, y);
+};
+UINavigation.m_currentPadCursorHoverElement = null;
+UINavigation.m_prevX = 0;
+UINavigation.m_prevY = 0;
+UINavigation.m_pageVisible = false;
 window.addEventListener("windowEnabledChange", UINavigation.onEnableChange);
 document.addEventListener("keydown", UINavigation.onKeyDown);
-Coherent.on("OnMouseSelectionMode", UINavigation.enterMouseMode);
-Coherent.on("OnKeysSelectionMode", UINavigation.enterKeysMode);
-Coherent.on("EnableKeysSelectionMode", UINavigation.enableKeyNavigation);
 Coherent.on("DisableKeysSelectionMode", UINavigation.disableKeyNavigation);
 Coherent.on("OnShow", UINavigation.onShow);
 Coherent.on("StartHideView", UINavigation.onHide);
@@ -1591,6 +2484,7 @@ class UIElement extends HTMLElement {
     constructor() {
         super();
         this.m_DummyUIElement = true;
+        this.m_canEnterKeysMode = true;
         this.onDefaultKeyDown = (e) => {
             this.onKeyDown(e.keyCode);
         };
@@ -1598,10 +2492,19 @@ class UIElement extends HTMLElement {
             this.onKeyUp(e.keyCode);
         };
         this.m_localGrid = null;
+        this.requestPadFilterRectInfo = () => {
+            let filterType = this.getAttribute('pad-filter-type');
+            let filterTarget = this.getAttribute('pad-filter-target');
+            let rect = this.getBoundingClientRect();
+            Coherent.trigger('PAD_FILTER_RECT_INFO', filterType, filterTarget, rect.left, rect.top, rect.right, rect.bottom);
+        };
         this.sendSizeUpdate = () => {
             this.dispatchEvent(new CustomEvent("virtualScrollSizeUpdate", { bubbles: true }));
         };
         this.previousButton = null;
+        if (bDebugElementsCreation) {
+            console.trace("creating ", this);
+        }
     }
     static getUIElement(elem) {
         if (elem) {
@@ -1611,14 +2514,27 @@ class UIElement extends HTMLElement {
         return null;
     }
     disconnectedCallback() {
+        if (this.hasAttribute('pad-filter-type')) {
+            Coherent.off('RequestFilterRectInfo', this.requestPadFilterRectInfo);
+        }
         this.blur();
     }
-    get childActiveClass() { return "ChildActive"; }
+    canUseScreenReader() {
+        return true;
+    }
+    get childActiveClass() { return ""; }
+    shouldDispatchChildActive() { return !this.hasAttribute("stop-child-active"); }
+    get canEnterKeysMode() { return this.m_canEnterKeysMode; }
+    set canEnterKeysMode(val) {
+        this.m_canEnterKeysMode = val;
+        if (val) {
+            if (UINavigation.KeysMode)
+                UINavigation.enterKeysMode();
+        }
+    }
     onActiveChildBlurred(child) {
-        this.classList.remove(this.childActiveClass);
     }
     onActiveChildFocused(child) {
-        this.classList.add(this.childActiveClass);
     }
     registerDefaultKeyEvents() {
         this.tabIndex = 1;
@@ -1790,7 +2706,8 @@ class UIElement extends HTMLElement {
         this.onVisibilityChange(val);
     }
     isVisible() {
-        return !this.classList.contains("hide") && !this.classList.contains("panelInvisible") && !this.classList.contains("invisible");
+        return !this.classList.contains("hide") && !this.classList.contains("panelInvisible") && !this.classList.contains("invisible") &&
+            !(XBOX() && this.classList.contains("noXbox"));
     }
     onVisibilityChange(visible) {
     }
@@ -1803,6 +2720,9 @@ class UIElement extends HTMLElement {
             if (UINavigation.currentRaw == this || UINavigation.currentRaw.isChildOf(this)) {
                 UINavigation.currentRaw.blur();
             }
+        }
+        else if (UINavigation.currentRaw == this && bool && UINavigation.KeysMode) {
+            this.focusByKeys(-1);
         }
     }
     disable(bool) {
@@ -1823,6 +2743,20 @@ class UIElement extends HTMLElement {
         }
         return false;
     }
+    isOneParentDisabled() {
+        if (!this.isVisible())
+            return false;
+        if (!this.isVisible())
+            return false;
+        let parent = this.parentElement;
+        while (parent) {
+            if (parent.classList.contains("disabled"))
+                return true;
+            parent = parent.parentElement;
+        }
+        return false;
+        return (this.closest("disabled") !== null);
+    }
     get disabled() {
         return this.classList.contains("disabled");
     }
@@ -1831,19 +2765,19 @@ class UIElement extends HTMLElement {
     canBeSelectedWithKeys() {
         if (this.getRootNode() != document)
             return false;
-        return !this.forceNoKeyNavigation && this.canBeSelected && this.isVisible() && !this.isOneParentHidden() && (this.enabled || this.canBeSelectedDisabled()) && (!this.locked || this.canBeSelectedLocked());
+        return !this.forceNoKeyNavigation && this.canBeSelected && this.isVisible() && !this.isOneParentDisabled() && !this.isOneParentHidden() && (this.enabled || this.canBeSelectedDisabled()) && (!this.locked || this.canBeSelectedLocked());
     }
     get forceNoKeyNavigation() {
-        return (this.hasAttribute("no-key-navigation"));
+        return UINavigation.KeysMode && (this.hasAttribute("no-key-navigation") && this.getAttribute("no-key-navigation") != "false");
     }
     get canBeSelected() {
         if (this.hasAttribute("can-be-selected"))
             return true;
-        if (this.hasAttribute("default-child-button"))
+        if (this.hasAttribute("auto-inside"))
             return true;
         return false;
     }
-    get locked() { return this.hasAttribute("locked"); }
+    get locked() { return this.hasAttribute("locked") || this.classList.contains('parentLocked'); }
     set locked(val) {
         if (val)
             this.setAttribute("locked", "");
@@ -1872,13 +2806,14 @@ class UIElement extends HTMLElement {
                 let overlayContent = document.createElement("div");
                 overlayContent.classList.add("loading-overlay__content");
                 overlay.appendChild(overlayContent);
-                let stack = new IconStackElement();
+                Include.addImport("/templates/IconStack/IconStack.html");
+                let stack = document.createElement("icon-stack");
                 let loaderIcon = new IconElement();
                 loaderIcon.setAttribute("data-url", "/icons/ICON_LOADING.svg");
                 stack.appendChild(loaderIcon);
                 overlayContent.appendChild(stack);
                 let title = new LabelizeElement();
-                title.setAttribute('key', "TT:MENU.LOADING");
+                title.setAttribute('key', this.loadingText ? this.loadingText : "TT:MENU.LOADING");
                 overlayContent.appendChild(title);
                 this.appendChild(overlay);
             }
@@ -1890,12 +2825,23 @@ class UIElement extends HTMLElement {
             this.classList.toggle("activeLoading", val);
         }
     }
+    get loadingText() {
+        return this.getAttribute('active-loading-text');
+    }
+    set loadingText(val) {
+        this.setAttribute('active-loading-text', val);
+    }
     connectedCallback() {
         this.m_globalGridColumn = null;
         this.m_globalGridColumnEnd = null;
         this.m_globalGridRow = null;
         this.m_globalGridRowEnd = null;
-        this.setAttribute("data-input-group", this.tagName);
+        if (this.hasAttribute('pad-filter-type')) {
+            Coherent.on('RequestFilterRectInfo', this.requestPadFilterRectInfo);
+        }
+    }
+    isTransparent() {
+        return true;
     }
     static get observedAttributes() { return ["local-grid", "local-grid-column", "local-grid-column-end", "local-grid-row", "local-grid-row-end"]; }
     attributeChangedCallback(name, oldValue, newValue) {
@@ -1903,6 +2849,10 @@ class UIElement extends HTMLElement {
             this.m_localGrid = null;
             this.localGrid;
         }
+    }
+    static getRenderSize(data, direction) {
+        console.warn('unimplemented getRenderSize method for ' + this.constructor.name);
+        return 0;
     }
     isParentOf(child) {
         if (child == this)
@@ -1951,6 +2901,9 @@ class UIElement extends HTMLElement {
     focus() {
         super.focus();
     }
+    get focused() {
+        return this.classList.contains("Focused") || this.classList.contains("focused");
+    }
     queryElement(selector) {
         return this.querySelector(selector);
     }
@@ -1979,10 +2932,32 @@ class UIElement extends HTMLElement {
             let ret = Utils.toArray(this.querySelectorAll(this.getAttribute("horizontal-navigation")));
             return ret;
         }
-        return null;
+        return [];
     }
     getKeyNavigationStayInside(keycode) {
         let attrib = this.getAttribute("navigation-stay-inside");
+        switch (attrib) {
+            case "down":
+                if (keycode == KeyCode.KEY_DOWN)
+                    return true;
+                break;
+            case "up":
+                if (keycode == KeyCode.KEY_UP)
+                    return true;
+                break;
+            case "left":
+                if (keycode == KeyCode.KEY_LEFT)
+                    return true;
+                break;
+            case "right":
+                if (keycode == KeyCode.KEY_RIGHT)
+                    return true;
+                break;
+            default: return this.hasAttribute("navigation-stay-inside");
+        }
+    }
+    getKeyOrthogonalStayInside(keycode) {
+        let attrib = this.getAttribute("orthogonal-stay-inside");
         switch (attrib) {
             case "down":
                 if (keycode == KeyCode.KEY_DOWN)
@@ -2029,45 +3004,26 @@ class UIElement extends HTMLElement {
             return this.getDefaultChildButton();
         }
     }
-    getDefaultChildButton() {
-        if (this.hasAttribute("default-child-button")) {
-            let children = this.querySelectorAll(this.getAttribute("default-child-button"));
-            for (let child of children) {
-                let UIElem = UIElement.getUIElement(child);
-                if (UIElem && UIElem.canBeSelectedWithKeys()) {
-                    return UIElem;
-                }
+    _getDefaultChildButton(reverse = false) {
+        let defaultChild = UINavigation.findDefaultChildUIElement(this, reverse) ||
+            UINavigation.findFocusedUIElement(this) ||
+            UINavigation.findSelectedUIElement(this) ||
+            UINavigation.findDefaultUIElement(this, reverse) ||
+            UINavigation.findFocusableUIElement(this, reverse);
+        if (defaultChild) {
+            if (bDebugKeyNavigation) {
+                console.warn("Found default child button", defaultChild);
+                console.trace();
             }
-        }
-        let selected = this.querySelector(".selected, .Focused");
-        if (selected && UIElement.getUIElement(selected)) {
-            if (selected.canBeSelectedWithKeys()) {
-                return UIElement.getUIElement(selected);
-            }
-        }
-        let allDefaultButtons = this.querySelectorAll("[default-button]");
-        for (let button of allDefaultButtons) {
-            let uiElem = UIElement.getUIElement(button);
-            if (uiElem) {
-                if (uiElem.canBeSelectedWithKeys()) {
-                    return uiElem;
-                }
-            }
-        }
-        let allFocusable = this.getAllFocusableChildren();
-        if (!allFocusable)
-            return null;
-        for (let child of allFocusable) {
-            let uiChild = UIElement.getUIElement(child);
-            if (uiChild && uiChild.canBeSelectedWithKeys()) {
-                let defaultButton = uiChild.getDefaultButton();
-                if (bDebugKeyNavigation)
-                    console.warn("default button", this, defaultButton);
-                if (defaultButton)
-                    return defaultButton;
-            }
+            return defaultChild;
         }
         return null;
+    }
+    getLastDefaultChildButton() {
+        return this._getDefaultChildButton(true);
+    }
+    getDefaultChildButton() {
+        return this._getDefaultChildButton(false);
     }
     virtualScrollIntoView(elt) {
         (elt ? elt : this).dispatchEvent(new CustomEvent("virtualScrollIntoView", { bubbles: true }));
@@ -2149,11 +3105,6 @@ class UIElement extends HTMLElement {
                 };
                 let allElems = null;
                 let allCandidates = [];
-                if (this.previousButton) {
-                    if (isCandidate(this.previousButton)) {
-                        allElems = [this.previousButton];
-                    }
-                }
                 if (!allElems) {
                     let queryStr = "";
                     if (horizontal) {
@@ -2189,7 +3140,7 @@ class UIElement extends HTMLElement {
                     let aTest2 = horizontal ? a.globalGridRow.toString() : a.globalGridColumn.toString();
                     let bTest2 = horizontal ? b.globalGridRow.toString() : b.globalGridColumn.toString();
                     if (aTest2 < bTest2)
-                        return -1;
+                        return 1;
                     if (aTest2 > bTest2)
                         return -1;
                     return 0;
@@ -2304,8 +3255,8 @@ class UIElement extends HTMLElement {
                         if (buttonToSelect) {
                             if (bDebugKeyNavigation)
                                 console.warn("buttonToSelect", buttonToSelect);
-                            selectedButton.blur();
                             buttonToSelect.focusByKeys(keycode);
+                            selectedButton.blur();
                             return true;
                         }
                         if (this.getKeyNavigationStayInside(keycode)) {
@@ -2336,12 +3287,42 @@ class UIElement extends HTMLElement {
     }
     get autoInside() { return this.hasAttribute("auto-inside"); }
     focusByKeys(keycode = -1) {
-        if (this.autoInside && this.getDefaultChildButton()) {
-            this.getDefaultChildButton().focusByKeys(keycode);
+        if (!UINavigation.KeysMode)
+            return;
+        let defaultChild = this.getDefaultChildButton();
+        if ((this.autoInside || !this.canBeSelectedWithKeys()) && defaultChild) {
+            if ((this.getKeyNavigationDirection() == KeyNavigationDirection.KeyNavigation_Vertical && keycode == KeyCode.KEY_UP) ||
+                (this.getKeyNavigationDirection() == KeyNavigationDirection.KeyNavigation_Horizontal && keycode == KeyCode.KEY_LEFT)) {
+                let lastDefaultChild = this.getLastDefaultChildButton();
+                if (lastDefaultChild)
+                    lastDefaultChild.focusByKeys(keycode);
+            }
+            else
+                defaultChild.focusByKeys(keycode);
+        }
+        else if (!this.canBeSelectedWithKeys()) {
+            console.error(this, " This element is not focusable by keys and have no default child (focusable), need to be fixed");
         }
         else {
             this.focus();
             this.dispatchEvent(new Event("focusbykeys", { bubbles: true }));
+            let eltToScroll = this;
+            if (this.hasAttribute("scroll-top-target")) {
+                if (document.querySelector(this.getAttribute('scroll-top-target'))) {
+                    let newEltToScroll = this.closest(this.getAttribute('scroll-top-target'));
+                    if (newEltToScroll && newEltToScroll instanceof UIElement) {
+                        if (newEltToScroll.isVisible()) {
+                            eltToScroll = newEltToScroll;
+                            if (bDebugKeyNavigation)
+                                console.warn("Scroll Top Target forced : ", eltToScroll);
+                        }
+                    }
+                    else if (bDebugKeyNavigation) {
+                        console.warn(this, " have a non UI Element as Scroll Top Target", this.getAttribute('scroll-top-target'), newEltToScroll);
+                    }
+                }
+            }
+            this.virtualScrollIntoView(eltToScroll);
             let parent = this.parentElement;
             while (parent) {
                 if (UIElement.getUIElement(parent)) {
@@ -2350,11 +3331,7 @@ class UIElement extends HTMLElement {
                 }
                 parent = parent.parentElement;
             }
-            this.virtualScrollIntoView();
         }
-    }
-    unFocusByKeys() {
-        this.blur();
     }
 }
 window.customElements.define("ui-element", UIElement);
@@ -2367,6 +3344,10 @@ class TemplateElement extends UIElement {
     constructor() {
         super();
         this.created = false;
+        this.onResourceLoaded = (e) => {
+            if (this.convertPath(e.detail) == this.convertPath(this.getAttribute("href")))
+                this.Instanciate();
+        };
         this.instantciatePopupToolbar = () => {
             let localPopup = document.createElement('local-popup');
             this.appendChild(localPopup);
@@ -2386,16 +3367,9 @@ class TemplateElement extends UIElement {
             console.warn("INSTANCIATE FAILED!!");
             return;
         }
-        this.appendChild(templateImport);
         let tElement = document.getElementById(this.templateID);
-        if (tElement) {
-            for (let attribute of tElement.attributes) {
-                if (attribute.name != "id" && attribute.name != "type") {
-                    if (!this.hasAttribute(attribute.name))
-                        this.setAttribute(attribute.name, attribute.value);
-                }
-            }
-        }
+        TemplateElement.copyAttributes(tElement, this);
+        this.appendChild(templateImport);
         window.clearTimeout(g_checkComponentsTimeout);
         g_checkComponentsTimeout = window.setTimeout(() => {
             g_ComponentMgr.checkAllComponents();
@@ -2408,9 +3382,16 @@ class TemplateElement extends UIElement {
         let destination = this.querySelector('[content-slot]') ? this.querySelector('[content-slot]') : this;
         destination.appendChild(element);
     }
-    onResourceLoaded(e) {
-        if (this.convertPath(e.detail) == this.convertPath(this.getAttribute("href")))
-            this.Instanciate();
+    static copyAttributes(from, to) {
+        for (let attribute of from.attributes) {
+            if (attribute.name != "id" && attribute.name != "type") {
+                if (attribute.name === "class") {
+                    to.classList.add(...from.classList);
+                }
+                else if (!to.hasAttribute(attribute.name))
+                    to.setAttribute(attribute.name, attribute.value);
+            }
+        }
     }
     convertPath(path) {
         return path.split("/").pop().replace(".html", "").replace(".js", "").toUpperCase();
@@ -2418,22 +3399,25 @@ class TemplateElement extends UIElement {
     disconnectedCallback() {
         super.disconnectedCallback();
     }
+    isTransparent() {
+        if (this.hasAttribute("is-transparent"))
+            return true;
+        return false;
+    }
     connectedCallback() {
         if (!this["Instanciate"]) {
-            console.error("UI IS BROKEN, forcing a reload of the page");
+            console.error("UI IS BROKEN (" + this.tagName + "), forcing a reload of the page " + document.URL);
             window.location.reload();
             return;
         }
-        super.connectedCallback();
         if (this.created == true)
             return;
-        if (!this["Instanciate"]) {
-            debugger;
-            console.error("STRANGE ERROR, the Template Element doesn't have the Instanciate function " + this.innerHTML, this);
-        }
         this.Instanciate();
         this.setAttribute("created", "true");
         this.created = true;
+        super.connectedCallback();
+        if (!this.isTransparent())
+            this.setAttribute("data-input-group", this.tagName);
         if (this.hasAttribute('has-popup-toolbar')) {
             Include.addImports(["/templates/localPopup/localPopup.html"], this.instantciatePopupToolbar);
         }
@@ -2447,7 +3431,7 @@ class TemplateElement extends UIElement {
                 fnc.call(fnc, ...args);
             }
             else {
-                obj.addEventListener("created", fnc.bind(fnc, ...args));
+                obj.addEventListener("created", fnc.bind(fnc, ...args), { once: true });
             }
         }
     }
@@ -2457,7 +3441,7 @@ class TemplateElement extends UIElement {
             callback();
         }
         else {
-            obj.addEventListener("created", callback);
+            obj.addEventListener("created", callback, { once: true });
         }
     }
     TemplateElement.callNoBinding = callNoBinding;
@@ -2477,16 +3461,49 @@ class UIMarquee extends UIElement {
                 });
             }
         };
+        this.updateSavedSizes = () => {
+            this.m_savedOffsetWidth = this.offsetWidth;
+            this.m_savedContentWidth = this.scrollWidth;
+            if (this.m_animation && this.m_animation.playing) {
+                this.m_animation.stop();
+                this.m_animation = this.scrollAnimation();
+                this.m_animation.play();
+            }
+            else {
+                this.m_animation.stop();
+                this.m_animation = this.scrollAnimation();
+            }
+        };
+        this.setText = (text) => {
+            let span = this.querySelector('span');
+            if (!span) {
+                span = document.createElement('span');
+                this.appendChild(span);
+            }
+            span.textContent = text;
+            if (this.noSizeCheck) {
+                this.updateSavedSizes();
+            }
+        };
+        this.setContent = (value) => {
+            var span = this.querySelector('span');
+            if (!span) {
+                span = document.createElement('span');
+                this.appendChild(span);
+            }
+            span.innerText = value;
+        };
         this.startScrollAnimation = () => {
             if (this.needsTooltip())
                 return;
             if (!this.noSizeCheck || !this.m_savedOffsetWidth) {
                 this.m_savedOffsetWidth = this.offsetWidth;
             }
+            let sizeChanged = !this.m_savedContentWidth || this.m_savedContentWidth != this.scrollWidth;
             if (!this.noSizeCheck || !this.m_savedContentWidth) {
                 this.m_savedContentWidth = this.scrollWidth;
             }
-            if (this.m_animation && (this.noSizeCheck || this.m_savedContentWidth === this.scrollWidth)) {
+            if (this.m_animation && (this.noSizeCheck || !sizeChanged)) {
                 this.m_animation.stop();
                 if (this.m_savedOffsetWidth < this.m_savedContentWidth) {
                     this.m_animation.play();
@@ -2510,10 +3527,12 @@ class UIMarquee extends UIElement {
     }
     connectedCallback() {
         this.addEventListener('virtualScrollSizeUpdate', this.updateScrollAnimation);
-        this.m_savedOffsetWidth = this.offsetWidth;
-        this.updateScrollAnimation();
-        this.updateScrollBehaviour();
         window.addEventListener("updateExternal:showTooltips", this.updateScrollBehaviour);
+        requestAnimationFrame(() => {
+            this.m_savedOffsetWidth = this.offsetWidth;
+            this.updateScrollAnimation();
+            this.updateScrollBehaviour();
+        });
     }
     disconnectedCallback() {
         super.disconnectedCallback();
@@ -2647,19 +3666,44 @@ class UIImageElement extends TemplateElement {
         this.updateBackground = () => {
             if (this.m_backBuffer && this.m_imageElement) {
                 this.m_backBuffer.src = this.m_imageElement.src;
-                this.m_backBufferElement.innerHTML = this.m_mainElem.innerHTML;
-                if (!this.transition)
+                if (!this.noBackElement) {
+                    this.m_backBuffer.classList.add("hide");
+                }
+                else if (!this.transition)
                     this.m_backBuffer.classList.add("invisible");
             }
         };
     }
     get transition() { return !this.hasAttribute("no-transition"); }
+    get noBackElement() { return this.hasAttribute("no-back-element"); }
+    SetData(data) {
+        if (typeof (data) == typeof ("")) {
+            this.src = encodeURI(data);
+        }
+        else if (typeof (data) == typeof (null)) {
+            this.LoadContentURL(data.image, data.ContentHTML, data.ContentTag, data.ContentData);
+        }
+    }
     LoadContentURL(srcImage, urlContent, contentTag, contentData) {
-        this.src = srcImage;
-        if (urlContent && urlContent != "") {
-            Include.addImport(urlContent, () => {
-                let container = document.createElement(contentTag);
-                this.m_mainContentElement.appendChild(container);
+        this.src = encodeURI(srcImage);
+        console.assert(this.m_mainContentElement.childElementCount <= 1, "There is " + this.m_mainContentElement.childElementCount + " children (too many)");
+        if (this.m_mainContentElement.childElementCount == 0 || this.m_mainContentElement.firstElementChild.tagName !== contentTag.toUpperCase()) {
+            Utils.RemoveAllChildren(this.m_mainContentElement);
+            if (urlContent && urlContent != "") {
+                Include.addImports([urlContent], () => {
+                    let container = document.createElement(contentTag);
+                    this.m_mainContentElement.appendChild(container);
+                    TemplateElement.call(container, () => {
+                        if (container.setAnyData) {
+                            container.setAnyData(contentData);
+                        }
+                    });
+                });
+            }
+        }
+        else {
+            let container = this.m_mainContentElement.firstElementChild;
+            TemplateElement.call(container, () => {
                 container.setAnyData(contentData);
             });
         }
@@ -2667,22 +3711,22 @@ class UIImageElement extends TemplateElement {
     clear() {
         this.src = "";
         this.m_backBuffer.src = "";
-        this.m_backBufferElement.innerHTML = this.m_mainElem.innerHTML;
     }
     set src(_src) {
         if (this.m_src != _src) {
             this.m_src = _src;
             if (this.m_mainElem) {
-                if (this.transition)
+                if (this.transition && _src)
                     this.m_mainElem.classList.add("ImageLoading");
                 Utils.RemoveAllChildren(this.m_mainContentElement);
                 if (_src != "")
-                    this.m_imageElement.src = _src;
+                    this.m_imageElement.src = _src + "?page='" + window.document.title + "'";
                 else {
                     this.m_imageElement.src = "";
                     this.m_backBuffer.src = "";
                 }
-                this.m_backBufferElement.classList.remove("invisible");
+                if (!this.noBackElement)
+                    this.m_backBufferElement.classList.remove("invisible");
             }
         }
     }
@@ -2690,15 +3734,19 @@ class UIImageElement extends TemplateElement {
         return this.m_src;
     }
     get transitionTime() {
-        if (this.hasAttribute("transitiontime")) {
-            this.m_transitionTime = parseFloat(this.getAttribute("transitiontime"));
+        let attribute = this.getAttribute("transitiontime");
+        if (attribute) {
+            this.m_transitionTime = parseFloat(attribute);
         }
         return this.m_transitionTime;
     }
     set transitionTime(n) {
         this.m_transitionTime = n;
+        this.style.setProperty("--transitionTime", this.transitionTime + "s");
+        this.setAttribute("transitiontime", n.toString());
     }
     connectedCallback() {
+        super.connectedCallback();
         if (!this.m_backBufferElement) {
             this.m_mainElem = document.createElement("div");
             this.m_mainElem.classList.add("MainElem");
@@ -2721,9 +3769,11 @@ class UIImageElement extends TemplateElement {
                 this.src = this.getAttribute('src');
             }
             if (this.m_mainElem) {
-                this.m_mainElem.classList.add("ImageLoading");
-                this.m_imageElement.src = this.m_src;
-                this.m_backBufferElement.classList.remove("invisible");
+                if (this.m_src)
+                    this.m_mainElem.classList.add("ImageLoading");
+                this.m_imageElement.src = this.m_src + "?page='" + window.document.title + "'";
+                if (!this.noBackElement)
+                    this.m_backBufferElement.classList.remove("invisible");
             }
         }
     }
@@ -2739,6 +3789,7 @@ var ViewListener;
             this.CheckCoherentEvent = (listenerName, ...args) => {
                 var testListenerName = listenerName.toUpperCase();
                 if (testListenerName == this.m_name) {
+                    engine.beginProfileEvent(testListenerName);
                     var eventName = args[0];
                     if (this.m_handlers) {
                         let i = 0;
@@ -2754,6 +3805,7 @@ var ViewListener;
                             ++i;
                         } while (this.m_handlers && i < this.m_handlers.length);
                     }
+                    engine.endProfileEvent();
                 }
             };
             this.unregister = () => {
@@ -2791,7 +3843,7 @@ var ViewListener;
             if (this.m_handlers) {
                 for (let handler of this.m_handlers) {
                     if (handler.name == name && handler.callback == callback && handler.context == context) {
-                      //  handler.globalEventHandler.clear();
+                        handler.globalEventHandler.clear();
                     }
                 }
             }
@@ -2824,6 +3876,9 @@ var ViewListener;
                 context: context,
                 globalEventHandler: Coherent.on(name, this.onGlobalEvent.bind(this, name))
             });
+        }
+        call(name, ...args) {
+            return Coherent.call(name, ...args);
         }
         trigger(name, ...args) {
             if (bDebugListeners) {
@@ -2920,6 +3975,8 @@ function RegisterViewListenerT(name, callback = null, type, requiresSingleton = 
         }
         var currentLocation = window.location;
         if (url == "html_ui" + currentLocation.pathname) {
+            if (bDebugLoading)
+                LogCallstack("register " + name + " url : " + currentLocation.pathname);
             Coherent.trigger("ADD_VIEW_LISTENER", name, currentLocation.pathname);
         }
     };
@@ -2946,9 +4003,19 @@ function RegisterViewListenerT(name, callback = null, type, requiresSingleton = 
     else {
         let eventHandler = null;
         if (Coherent["isViewLoaded"] === true) {
-            register("html_ui" + window.location.pathname);
+            if (!existingListener) {
+                if (bDebugLoading)
+                    console.warn("Register because view is already loaded");
+                register("html_ui" + window.location.pathname);
+            }
+            else {
+                if (callback)
+                    setTimeout(() => callback());
+            }
         }
-        else {
+        else if (!existingListener) {
+            if (bDebugLoading)
+                LogCallstack("***** Add ON_VIEW_LOADED event listener for " + name);
             eventHandler = Coherent.on("ON_VIEW_LOADED", register);
         }
         let ret = new type(name);
@@ -2988,7 +4055,7 @@ class Name_Z {
     static isValid(a) {
         if (!a)
             return false;
-        if (a.str) {  // da-modified: was `a.str != ""`
+        if (a.str != "") {
             return a.idHigh != 0 || a.idLow != 0;
         }
         return true;
@@ -3601,6 +4668,9 @@ function setElementPosition(element) {
     }
 }
 window.document.addEventListener("keydown", function (e) {
+    if (e.keyCode == KeyCode.KEY_TAB) {
+        e.preventDefault();
+    }
     if (e.keyCode == KeyCode.KEY_BACK_SPACE || e.keyCode == KeyCode.KEY_SPACE) {
         var target = (e.target);
         if (target != null) {
@@ -3637,24 +4707,83 @@ function LogCallstack(message) {
 var bDebugLoading = false;
 class SmartLoader {
     constructor() {
+        this.onDocumentLoaded = () => {
+            var links = window.document.querySelectorAll('link[rel="import"]');
+            for (var i = 0; i < links.length; i++) {
+                if (bDebugLoading)
+                    console.warn("links[i].href : " + links[i].href);
+                var fileName = this.convertPath(links[i].href);
+                if (!this._resourcesLoaded.find(function (val) { return val == fileName.toUpperCase(); })) {
+                    this._resourcesToLoad.push(fileName.toUpperCase());
+                    if (bDebugLoading)
+                        console.warn("add event listener " + fileName);
+                }
+            }
+            if (bDebugLoading)
+                console.warn("Check loaded from document loaded");
+            this.checkLoaded();
+        };
+        this.m_timeoutCheckLoaded = -1;
+        this.onResourceLoaded = (e) => {
+            if (bDebugLoading)
+                console.warn("onResourceLoaded : " + e.detail);
+            var pathSimple = this.convertPath(e.detail);
+            this._resourcesLoaded.push(pathSimple);
+            if (bDebugLoading)
+                console.warn("onResourceLoaded : " + pathSimple + " /// " + this._htmlPath);
+            let mustCheck = false;
+            for (var i = this._resourcesToLoad.length - 1; i >= 0; i--) {
+                if (this._resourcesToLoad[i] == pathSimple) {
+                    this._resourcesToLoad.splice(i, 1);
+                    if (bDebugLoading)
+                        console.warn("resource found : " + pathSimple);
+                    mustCheck = true;
+                }
+            }
+            if (this._resourcesToLoad.length == 0) {
+                Include.onAllResourcesLoaded();
+            }
+            if (mustCheck) {
+                if (this.m_timeoutCheckLoaded >= 0)
+                    clearTimeout(this.m_timeoutCheckLoaded);
+                this.m_timeoutCheckLoaded = setTimeout(this.checkLoaded, 100);
+                this.checkLoaded();
+            }
+        };
+        this.m_OnViewLoadedSend = false;
+        this.checkLoaded = () => {
+            if (bDebugLoading) {
+                console.warn("Check loaded : " + this._resourcesToLoad.length + " for " + this._htmlPath);
+                console.warn(this._resourcesToLoad);
+            }
+            if (this._resourcesToLoad.length == 0) {
+                if (this.m_OnViewLoadedSend) {
+                    if (bDebugLoading)
+                        console.error("ON_VIEW_LOADED send twice !");
+                    return;
+                }
+                this.m_OnViewLoadedSend = true;
+                if (bDebugLoading) {
+                    console.warn("ON_VIEW_LOADED Send for " + this._htmlPath);
+                }
+                Coherent["isViewLoaded"] = true;
+                Coherent.trigger("ON_VIEW_LOADED", 'html_ui' + this._htmlPath);
+                CoherentSetup.CheckCoherentEngine(window);
+                if (window && window.document && window.document.body) {
+                    window.document.body.classList.remove("contentLoading");
+                    window.document.body.classList.add("contentLoaded");
+                }
+            }
+        };
         this.OnNodeRemoved = (e) => {
-            if (e.target && e.target["tagName"] == "INPUT") {
-                this.onInputRemoved(e.target);
-            }
-            if (e.target["querySelectorAll"]) {
-                let inputFields = e.target.querySelectorAll("input");
-                inputFields.forEach((input) => {
-                    this.onInputRemoved(input);
-                });
-            }
         };
         this._resourcesToLoad = new Array();
         this._resourcesLoaded = [];
         var currentLocation = window.location;
         var url = currentLocation.pathname;
         this._htmlPath = url;
-        window.document.addEventListener("DOMContentLoaded", this.onDocumentLoaded.bind(this));
-        window.document.addEventListener("ResourceLoaded", this.onResourceLoaded.bind(this));
+        window.document.addEventListener("DOMContentLoaded", this.onDocumentLoaded);
+        window.document.addEventListener("ResourceLoaded", this.onResourceLoaded);
         if (bDebugLoading)
             console.warn("CONSTRUCTOR " + this._htmlPath);
     }
@@ -3662,56 +4791,9 @@ class SmartLoader {
         return path.split("/").pop().replace(".html", "").replace(".js", "").toUpperCase();
     }
     addResource(path) {
+        if (bDebugLoading)
+            console.warn("addResource : ", path);
         this._resourcesToLoad.push(this.convertPath(path));
-    }
-    onDocumentLoaded() {
-        var links = window.document.querySelectorAll('link[rel="import"]');
-        for (var i = 0; i < links.length; i++) {
-            if (bDebugLoading)
-                console.warn("links[i].href : " + links[i].href);
-            var fileName = this.convertPath(links[i].href);
-            if (!this._resourcesLoaded.find(function (val) { return val == fileName.toUpperCase(); })) {
-                this._resourcesToLoad.push(fileName.toUpperCase());
-                if (bDebugLoading)
-                    console.warn("add event listener " + fileName);
-            }
-        }
-        this.checkLoaded();
-    }
-    onResourceLoaded(e) {
-        if (bDebugLoading)
-            console.warn("onResourceLoaded : " + e.detail);
-        var pathSimple = this.convertPath(e.detail);
-        this._resourcesLoaded.push(pathSimple);
-        if (bDebugLoading)
-            console.warn("onResourceLoaded : " + pathSimple + " /// " + this._htmlPath);
-        let mustCheck = false;
-        for (var i = this._resourcesToLoad.length - 1; i >= 0; i--) {
-            if (this._resourcesToLoad[i] == pathSimple) {
-                this._resourcesToLoad.splice(i, 1);
-                if (bDebugLoading)
-                    console.warn("resource found : " + pathSimple);
-                mustCheck = true;
-            }
-        }
-        if (this._resourcesToLoad.length == 0) {
-            Include.onAllResourcesLoaded();
-        }
-        if (mustCheck)
-            this.checkLoaded();
-    }
-    checkLoaded() {
-        if (bDebugLoading) {
-            console.warn("Check loaded : " + this._resourcesToLoad.length + " for " + this._htmlPath);
-            console.warn(this._resourcesToLoad);
-        }
-        this.checkAllInputElements();
-        if (this._resourcesToLoad.length == 0) {
-            if (bDebugLoading) {
-                console.warn("ON_VIEW_LOADED Send for " + this._htmlPath);
-            }
-            Coherent.trigger("ON_VIEW_LOADED", 'html_ui' + this._htmlPath);
-        }
     }
     onInputRemoved(input) {
         if (document.activeElement == input)
@@ -3721,38 +4803,30 @@ class SmartLoader {
         input.removeEventListener("focus", OnInputFieldFocus);
         input.removeEventListener("blur", OnInputFieldUnfocus);
     }
-    checkAllInputElements() {
-        let inputFields = window.document.querySelectorAll("input");
-        document.addEventListener("DOMNodeRemoved", this.OnNodeRemoved);
-        inputFields.forEach((input) => {
-            input.addEventListener("focus", OnInputFieldFocus);
-            input.addEventListener("blur", OnInputFieldUnfocus);
-        });
-    }
 }
 var loader = new SmartLoader();
 class DebugMgr {
     constructor() {
         this.m_defaultPosRight = 0;
         this.m_defaultPosTop = 0;
+        this.CreateDebugPanel = () => {
+            if (this.m_debugPanel != null)
+                return;
+            if (!document.body) {
+                Coherent.on("ON_VIEW_LOADED", this.CreateDebugPanel);
+                return;
+            }
+            this.m_debugPanel = document.createElement("div");
+            this.m_debugPanel.id = "DebugPanel";
+            this.m_debugPanel.classList.add("debugPanel");
+            document.body.appendChild(this.m_debugPanel);
+            this.setDefaultPos(this.m_defaultPosRight, this.m_defaultPosTop);
+            this.dragDropHandler = new DragDropHandler(this.m_debugPanel);
+            document.dispatchEvent(new Event("DebugPanelCreated"));
+        };
         this.m_defaultLog = null;
         this.m_defaultWarn = null;
         this.m_defaultError = null;
-    }
-    CreateDebugPanel() {
-        if (this.m_debugPanel != null)
-            return;
-        if (!document.body) {
-            Coherent.on("ON_VIEW_LOADED", this.CreateDebugPanel.bind(this));
-            return;
-        }
-        this.m_debugPanel = document.createElement("div");
-        this.m_debugPanel.id = "DebugPanel";
-        this.m_debugPanel.classList.add("debugPanel");
-        document.body.appendChild(this.m_debugPanel);
-        this.setDefaultPos(this.m_defaultPosRight, this.m_defaultPosTop);
-        this.dragDropHandler = new DragDropHandler(this.m_debugPanel);
-        document.dispatchEvent(new Event("DebugPanelCreated"));
     }
     setDefaultPos(right, top) {
         this.m_defaultPosRight = right;
@@ -3775,6 +4849,7 @@ class DebugMgr {
         button.innerText = text;
         button.classList.add("debugButton");
         button.addEventListener("click", callback);
+        button.setAttribute("data-input-group", "DebugButton");
         if (this.m_ConsoleCallback) {
             button.addEventListener("click", this.UpdateConsole.bind(this));
         }
@@ -3857,7 +4932,12 @@ var Cursor;
     Cursor.unsetCursor = unsetCursor;
 })(Cursor || (Cursor = {}));
 class DataValue {
-    static set(name = "", value, unit, valueStr = null) {
+    constructor(data) {
+        if (data) {
+            Object.assign(this, data);
+        }
+    }
+    static set(name = "", value, unit, valueStr = null, icon = "") {
         let ret = new DataValue();
         ret.name = name;
         if (value != undefined) { }
@@ -3868,14 +4948,81 @@ class DataValue {
         }
         ret.unit = unit;
         ret.html = "<span class='value'>" + ret.valueStr + "</span><span class='unit'>" + ret.unit + "</span>";
+        ret.icon = icon;
         return ret;
+    }
+    static compare(arg0, arg1) {
+        if (arg0.ID !== arg1.ID) {
+            return false;
+        }
+        ;
+        if (arg0.icon !== arg1.icon) {
+            return false;
+        }
+        ;
+        if (arg0.name !== arg1.name) {
+            return false;
+        }
+        ;
+        if (arg0.valueStr !== arg1.valueStr) {
+            return false;
+        }
+        ;
+        if (arg0.value !== arg1.value) {
+            return false;
+        }
+        ;
+        if (arg0.unit !== arg1.unit) {
+            return false;
+        }
+        ;
+        if (arg0.quality !== arg1.quality) {
+            return false;
+        }
+        ;
+        if (arg0.type !== arg1.type) {
+            return false;
+        }
+        ;
+        if (arg0.html != arg1.html) {
+            return false;
+        }
+        ;
+        return true;
     }
 }
 class TreeDataValue extends DataValue {
+    static compare(arg0, arg1) {
+        if (DataValue.compare(arg0, arg1)) {
+            let me = arg0;
+            let other = arg1;
+            if (me.children && other.children) {
+                if (me.children.length != other.children.length) {
+                    return false;
+                }
+                for (let i = 0; i < me.children.length; i++) {
+                    if (TreeDataValue.compare(me.children[i], other.children[i]) == false)
+                        return false;
+                }
+                return true;
+            }
+            else {
+                if (me.children || other.children)
+                    return false;
+                else
+                    return true;
+            }
+        }
+        else {
+            return false;
+        }
+    }
 }
 class RangeDataValue extends DataValue {
 }
 class DataTable {
+}
+class TableDataValue {
 }
 class Vec2 {
     constructor(_x = 0, _y = 0) {
@@ -3894,11 +5041,47 @@ class Vec2 {
         ret.y = vec1.y - vec2.y;
         return ret;
     }
+    Set(x, y) {
+        this.x = x;
+        this.y = y;
+    }
     VectorTo(other) {
         if (other)
             return Vec2.Delta(other, this);
         else
-            return new Vec2(0, 0);
+            return new Vec2();
+    }
+    Add(x, y, z) {
+        var ret = new Vec2();
+        ret.x = this.x + x;
+        ret.y = this.y + y;
+        return ret;
+    }
+    Substract(x, y, z) {
+        var ret = new Vec2();
+        ret.x = this.x - x;
+        ret.y = this.y - y;
+        return ret;
+    }
+    AddVec(other) {
+        if (other) {
+            var ret = new Vec2();
+            ret.x = this.x + other.x;
+            ret.y = this.y + other.y;
+            return ret;
+        }
+        else
+            return new Vec2(this.x, this.y);
+    }
+    SubstractVec(other) {
+        if (other) {
+            var ret = new Vec2();
+            ret.x = this.x - other.x;
+            ret.y = this.y - other.y;
+            return ret;
+        }
+        else
+            return new Vec2(this.x, this.y);
     }
     toCurvePointString() {
         return `${this.x} ${this.y}`;
@@ -3927,21 +5110,119 @@ class Vec2 {
     SqrDistance(other) {
         return (this.x - other.x) * (this.x - other.x) + (this.y - other.y) * (this.y - other.y);
     }
+    RectSqrDistance(rect) {
+        let rectCenter = Vec2.FromRect(rect);
+        let dx = Math.max(Math.abs(this.x - rectCenter.x) - rect.width * 0.5, 0);
+        let dy = Math.max(Math.abs(this.y - rectCenter.y) - rect.height * 0.5, 0);
+        return dx * dx + dy * dy;
+    }
     Distance(other) {
         return Math.sqrt(this.SqrDistance(other));
+    }
+    IsInside(rect) {
+        return this.x > rect.left && this.x < rect.right && this.y > rect.top && this.y < rect.bottom;
     }
     Equals(other) {
         return (this.SqrDistance(other) < Number.EPSILON) ? true : false;
     }
 }
 class Vec3 {
-    constructor(x, y, z) {
+    constructor(x = 0, y = 0, z = 0) {
         this.x = x;
         this.y = y;
         this.z = z;
     }
     toString() {
         return this.x + " " + this.y + " " + this.z;
+    }
+    static Delta(vec1, vec2) {
+        var ret = new Vec3();
+        ret.x = vec1.x - vec2.x;
+        ret.y = vec1.y - vec2.y;
+        ret.z = vec1.z - vec2.z;
+        return ret;
+    }
+    Set(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+    VectorTo(other) {
+        if (other)
+            return Vec3.Delta(other, this);
+        else
+            return new Vec3();
+    }
+    Add(x, y, z) {
+        var ret = new Vec3();
+        ret.x = this.x + x;
+        ret.y = this.y + y;
+        ret.z = this.z + z;
+        return ret;
+    }
+    Substract(x, y, z) {
+        var ret = new Vec3();
+        ret.x = this.x - x;
+        ret.y = this.y - y;
+        ret.z = this.z - z;
+        return ret;
+    }
+    AddVec(other) {
+        if (other) {
+            var ret = new Vec3();
+            ret.x = this.x + other.x;
+            ret.y = this.y + other.y;
+            ret.z = this.z + other.z;
+            return ret;
+        }
+        else
+            return new Vec3(this.x, this.y, this.z);
+    }
+    SubstractVec(other) {
+        if (other) {
+            var ret = new Vec3();
+            ret.x = this.x - other.x;
+            ret.y = this.y - other.y;
+            ret.z = this.z - other.z;
+            return ret;
+        }
+        else
+            return new Vec3(this.x, this.y, this.z);
+    }
+    toCurvePointString() {
+        return `${this.x} ${this.y} ${this.z}`;
+    }
+    Dot(other) {
+        return this.x * other.x + this.y * other.y + this.z * other.z;
+    }
+    GetNorm() {
+        return Math.sqrt(this.Dot(this));
+    }
+    Normalize() {
+        var norm = this.GetNorm();
+        if (norm > 0) {
+            this.x /= norm;
+            this.y /= norm;
+            this.z /= norm;
+        }
+    }
+    SetNorm(n) {
+        var norm = this.GetNorm();
+        if (norm > 0) {
+            var factor = n / norm;
+            this.x *= factor;
+            this.y *= factor;
+            this.z *= factor;
+        }
+    }
+    SqrDistance(other) {
+        return (this.x - other.x) * (this.x - other.x) + (this.y - other.y) * (this.y - other.y) + (this.z - other.z) * (this.z - other.z);
+    }
+    Distance(other) {
+        return Math.sqrt(this.SqrDistance(other));
+    }
+    Equals(other) {
+        return (this.SqrDistance(other) < Number.EPSILON) ? true : false;
     }
 }
 class IconTextElement extends UIElement {
@@ -3969,7 +5250,7 @@ class IconTextElement extends UIElement {
         if (imageNames.length > 0) {
             for (let i = 0; i < imageNames.length; i++) {
                 let imageName = imageNames[i];
-                var imgSrc = this.basePath + subPath + "/" + imageName;
+                var imgSrc = encodeURI(this.basePath + subPath + "/" + imageName);
                 if (imageName.endsWith('.svg')) {
                     let iconContainer = document.createElement('div');
                     iconContainer.classList.add('text-icon-container');
@@ -3981,7 +5262,7 @@ class IconTextElement extends UIElement {
                     };
                     icon.addEventListener('iconElementLoaded', () => {
                         this.classList.add('has-icon');
-                    });
+                    }, { once: true });
                     icon.setAttribute('data-url', imgSrc);
                     iconContainer.appendChild(icon);
                     this.appendChild(iconContainer);
@@ -3992,7 +5273,7 @@ class IconTextElement extends UIElement {
                     }, 0);
                 }
                 else {
-                    var imgSrc = this.basePath + subPath + "/" + imageName;
+                    var imgSrc = encodeURI(this.basePath + subPath + "/" + imageName);
                     var img = document.createElement("img");
                     console.warn("imgSrc", imgSrc);
                     img.src = imgSrc;
@@ -4035,6 +5316,7 @@ class IconTextElement extends UIElement {
         else {
             icon = document.createElement('div');
             icon.classList.add('text-icon-container');
+            this.appendChild(icon);
         }
         let iconContainer = icon;
         iconContainer.classList.add('no-image-found');
@@ -4042,7 +5324,6 @@ class IconTextElement extends UIElement {
         text.classList.add('text');
         text.textContent = altText;
         iconContainer.appendChild(text);
-        this.appendChild(iconContainer);
     }
 }
 IconTextElement.CLASS_NAME = 'IconTextElement';
@@ -4085,15 +5366,19 @@ class DeviceButtonElement extends IconTextElement {
 }
 window.customElements.define("device-button", DeviceButtonElement);
 class AtlasItemInfos {
+    constructor() {
+        this.needToSendRegisteredRectOnly = false;
+    }
 }
 class AltasElementsMgr {
     constructor() {
         this.m_elements = [];
-        this.GetAtlasElements = () => {
+        this.RebuildAtlasElements = () => {
             if (!closed) {
                 Coherent.trigger("CLEAR_ALL_ATLAS_ELEMENTS");
                 for (let item of this.m_elements) {
                     item.rect = new DOMRect();
+                    item.needToSendRegisteredRectOnly = false;
                 }
                 var allElementsWithID = document.querySelectorAll("[data-atlas-element]");
                 for (var elem of allElementsWithID) {
@@ -4103,13 +5388,20 @@ class AltasElementsMgr {
                 }
             }
         };
-        Coherent.on("GetAllAtlasElements", this.GetAtlasElements);
-        window.top.addEventListener('resize', this.GetAtlasElements);
+        Coherent.on("GetAllAtlasElements", this.RebuildAtlasElements);
+        window.top.addEventListener('resize', this.RebuildAtlasElements);
     }
     SendItem(registeredElem) {
         if (!registeredElem)
             return;
-        var rect = registeredElem.elem.getBoundingClientRect();
+        if (registeredElem.needToSendRegisteredRectOnly) {
+            if (Coherent) {
+                Coherent.trigger("SET_ATLAS_ELEMENT", registeredElem.elem.id, registeredElem.rect.left, registeredElem.rect.top, registeredElem.rect.right, registeredElem.rect.bottom);
+            }
+            registeredElem.needToSendRegisteredRectOnly = false;
+            return;
+        }
+        const rect = registeredElem.elem.getBoundingClientRect();
         if (rect.width == 0 || rect.height == 0) {
             requestAnimationFrame(this.SendItem.bind(this, registeredElem));
             return;
@@ -4140,6 +5432,18 @@ class AltasElementsMgr {
         }
         this.SendItem(registeredElem);
     }
+    InvalidateAtlasElement(elem) {
+        let index = this.m_elements.findIndex(function (val) { return val.elem == elem; });
+        if (index >= 0)
+            this.m_elements.splice(index);
+    }
+    RequestSendRegirsteredRectOnNextAdd(elem) {
+        const regElem = this.m_elements.find(function (val) { return val.elem == elem; });
+        if (regElem)
+            regElem.needToSendRegisteredRectOnly = true;
+        else
+            this.AddAtlasElement(elem);
+    }
 }
 var g_AtlasMgr = new AltasElementsMgr();
 var InputBar;
@@ -4154,6 +5458,8 @@ var InputBar;
     InputBar.MENU_BUTTON_RESET = "MENU_RESET";
     InputBar.MENU_BUTTON_APPLY = "MENU_APPLY";
     InputBar.MENU_BUTTON_PRESET_MANAGER = "MENU_PRESET_MANAGER";
+    InputBar.MENU_BUTTON_PROFILE_MANAGER = "MENU_PROFILE_MANAGER";
+    InputBar.MENU_BUTTON_CONTENT_MANAGER = "MENU_CONTENT_MANAGER";
     InputBar.MENU_BUTTON_QUIT = "MENU_QUIT_GAME";
     InputBar.MENU_BUTTON_CLOSE = "MENU_CLOSE";
     InputBar.MENU_BUTTON_BACK = "MENU_BACK";
@@ -4161,8 +5467,12 @@ var InputBar;
     InputBar.MENU_BUTTON_WM_LEGEND = "MENU_WM_LEGEND";
     InputBar.MENU_BUTTON_CUSTOMIZE = "MENU_CUSTOMIZE";
     InputBar.MENU_BUTTON_FLY = "MENU_FLY";
+    InputBar.MENU_BUTTON_FAVORITE = "MENU_BUTTON_FAVORITE";
     InputBar.MENU_BUTTON_TAB_LEFT = "MENU_L1";
     InputBar.MENU_BUTTON_TAB_RIGHT = "MENU_R1";
+    InputBar.MENU_BUTTON_RANALOG_X = "KEY_MENU_SCROLL_AXIS_X";
+    InputBar.MENU_BUTTON_RANALOG_Y = "KEY_MENU_SCROLL_AXIS_Y";
+    InputBar.MENU_BUTTON_RANALOG_XY = "MENU_WM_LEGEND";
     function isContainer(elem) {
         return (elem).getButtons !== undefined;
     }
@@ -4214,27 +5524,27 @@ var InputBar;
         m_Registered.push(id);
         if (m_InputBarListener && m_InputBarListener.connected) {
             Coherent.trigger("REGISTER_INPUT_BAR", id, window.location.pathname);
-            Coherent.trigger("SET_INPUT_BAR", id, params, window.location.pathname);
+            Coherent.trigger("SET_INPUT_BAR", id, params.buttons, window.location.pathname);
         }
         else {
             m_InputBarListener = RegisterViewListener("JS_LISTENER_INPUTBAR", function () {
                 Coherent.trigger("REGISTER_INPUT_BAR", id, window.location.pathname);
-                Coherent.trigger("SET_INPUT_BAR", id, params, window.location.pathname);
+                Coherent.trigger("SET_INPUT_BAR", id, params.buttons, window.location.pathname);
             }, true);
         }
         Coherent.on("StartHideView", clearInputBar.bind(null, id));
     }
     InputBar.setInputBar = setInputBar;
     function addInputBar(id, parentId, params) {
+        m_Registered.push(id);
         if (m_InputBarListener && m_InputBarListener.connected) {
             Coherent.trigger("REGISTER_INPUT_BAR", id, window.location.pathname);
-            Coherent.trigger("ADD_INPUT_BAR", id, parentId, params, window.location.pathname);
+            Coherent.trigger("ADD_INPUT_BAR", id, parentId, params.buttons, window.location.pathname);
         }
         else {
-            m_Registered.push(id);
             m_InputBarListener = RegisterViewListener("JS_LISTENER_INPUTBAR", function () {
                 Coherent.trigger("REGISTER_INPUT_BAR", id, window.location.pathname);
-                Coherent.trigger("ADD_INPUT_BAR", id, parentId, params, window.location.pathname);
+                Coherent.trigger("ADD_INPUT_BAR", id, parentId, params.buttons, window.location.pathname);
             }, true);
         }
         Coherent.on("StartHideView", clearInputBar.bind(null, id));
@@ -4256,16 +5566,6 @@ var InputBar;
     }
     InputBar.clearInputBar = clearInputBar;
 })(InputBar || (InputBar = {}));
-class GameFeaturesListener extends ViewListener.ViewListener {
-    isFeatureSupported(name) {
-        if (g_featureList)
-            return g_featureList.isSupported(name);
-        return false;
-    }
-}
-function RegisterGameFeaturesListener(callback) {
-    return RegisterViewListenerT("JS_LISTENER_GAMEFEATURES", callback, GameFeaturesListener);
-}
 class NotificationButton {
     constructor(_title = "", _event = "", _close = true, _theme = null, _toGlobalFlow = false) {
         this.__Type = "NotificationButton";
@@ -4294,7 +5594,10 @@ Coherent.on("DialogIsEnabled", (enabled) => {
 var PopUp;
 (function (PopUp) {
     let g_popUplistener;
-    var bModelPopupGreyed = false;
+    var bGreyedNotif = false;
+    var bGreyedPopup = false;
+    var bBlurredMenu = false;
+    var bWidgetContentPopup = false;
     function isBlockedByPopUp() {
         return window.top["blockedByPopUp"];
     }
@@ -4312,49 +5615,94 @@ var PopUp;
         if (!Utils.inIframe()) {
             setBlockedByPopUp(true);
             if (type == "MODAL_POPUP") {
-                bModelPopupGreyed = true;
+                bGreyedNotif = true;
                 if (!g_externalVariables.vrMode) {
                     window.document.body.classList.add("greyed-notif");
                 }
             }
             else if (type == "COMMUNITY_PANEL") {
-                if (isWindowEnabled()) {
-                    window.document.body.classList.add("greyed-popup");
+                bGreyedPopup = true;
+                if (!g_externalVariables.vrMode) {
+                    if (isWindowEnabled()) {
+                        window.document.body.classList.add("greyed-popup");
+                    }
+                    else {
+                        window.document.body.classList.add("disable-greyed");
+                    }
                 }
-                else {
-                    window.document.body.classList.add("disable-greyed");
+            }
+            else if (type == "WIDGETCONTENT_POPUP") {
+                bWidgetContentPopup = true;
+                if (!g_externalVariables.vrMode) {
+                    window.document.body.classList.add("widget-content-popup");
                 }
             }
         }
     }
     function OnPopUpHidden(type) {
         setBlockedByPopUp(false);
+        if (!window.document.body)
+            return;
         if (type == "MODAL_POPUP") {
-            bModelPopupGreyed = false;
-            if (!g_externalVariables.vrMode) {
-                window.document.body.classList.remove("greyed-notif");
-            }
+            bGreyedNotif = false;
+            window.document.body.classList.remove("greyed-notif");
+        }
+        else if (type == "WIDGETCONTENT_POPUP") {
+            bWidgetContentPopup = false;
+            window.document.body.classList.remove("widget-content-popup");
         }
         else if (type == "COMMUNITY_PANEL") {
+            bGreyedPopup = false;
             window.document.body.classList.remove("greyed-popup");
             window.document.body.classList.remove("disable-greyed");
         }
+        else if (type == "") {
+            bGreyedPopup = false;
+            window.document.body.classList.remove("greyed-popup");
+            window.document.body.classList.remove("disable-greyed");
+            bGreyedNotif = false;
+            window.document.body.classList.remove("greyed-notif");
+        }
     }
     function OnMenuPopUpDisplayed() {
-        setBlockedByPopUp(true);
-        window.document.body.classList.add("blurMenu");
+        bBlurredMenu = true;
+        if (!g_externalVariables.vrMode) {
+            setBlockedByPopUp(true);
+            window.document.body.classList.add("blurMenu");
+        }
     }
     function OnMenuPopUpHidden() {
+        bBlurredMenu = false;
         setBlockedByPopUp(false);
         window.document.body.classList.remove("blurMenu");
     }
     function OnSwitchVRModeState(state) {
-        if (bModelPopupGreyed) {
+        if (bGreyedNotif) {
             if (state) {
                 window.document.body.classList.remove("greyed-notif");
             }
             else {
                 window.document.body.classList.add("greyed-notif");
+            }
+        }
+        if (bGreyedPopup) {
+            if (state) {
+                window.document.body.classList.remove("greyed-popup");
+                window.document.body.classList.remove("disable-greyed");
+            }
+            else if (isWindowEnabled()) {
+                window.document.body.classList.add("greyed-popup");
+            }
+            else {
+                window.document.body.classList.add("disable-greyed");
+            }
+        }
+        if (bBlurredMenu) {
+            if (state) {
+                window.document.body.classList.remove("blurMenu");
+            }
+            else {
+                window.document.body.classList.add("blurMenu");
             }
         }
     }
@@ -4437,7 +5785,6 @@ class ComponentMgr {
                 this.m_registered[compo].addImport();
             }
         }
-        loader.checkAllInputElements();
     }
     registerComponent(tag, includePath) {
         if (!this.m_registered.hasOwnProperty(tag.toUpperCase())) {
@@ -4479,6 +5826,26 @@ function updateGlobalVar(key, value) {
             break;
         case 'vrMode':
             break;
+        case 'debugMode':
+            updateDebugMode(value);
+            break;
+        case 'cursorSize':
+            break;
+        case 'navigationMode':
+            let mode = value;
+            UINavigation.switchNativigationMode(mode);
+            break;
+        case 'useScreenReader':
+        case 'debugScreenReader':
+            ScreenReader.updateStatus();
+            break;
+        case 'exclusiveFocusGuid':
+            updateExclusiveFocusGuid(value);
+            break;
+        case 'instrumentDescriptionTooltipsDelay':
+            break;
+        case 'instrumentNameTooltipsDelay':
+            break;
         default:
             console.warn('[GLOBAL VAR] Key unrecognized: ' + key);
     }
@@ -4502,6 +5869,13 @@ function updateMinimalTextSize(size) {
         }
     }
 }
+let currentDebugMode = null;
+function updateDebugMode(value) {
+    if (currentDebugMode)
+        document.body.removeAttribute(currentDebugMode);
+    currentDebugMode = value;
+    document.documentElement.setAttribute(currentDebugMode, "");
+}
 function updateUiScaling(scale) {
     g_externalVariables.uiScaling = scale;
     CoherentSetup.updateScreenSize();
@@ -4511,6 +5885,15 @@ function updateShowTooltip(show) {
         Utils.hideTooltip("");
     }
     window.dispatchEvent(new Event("updateExternal:showTooltips"));
+}
+function updateExclusiveFocusGuid(focusGuid) {
+    if (focusGuid && focusGuid !== UINavigation.currentExclusiveFocusGuid) {
+        if (UINavigation.currentExclusiveFocusGuid === UINavigation.myExclusiveFocusGuid
+            && focusGuid !== UINavigation.myExclusiveFocusGuid) {
+            UINavigation.clearNonFocusedPanel();
+        }
+        UINavigation.currentExclusiveFocusGuid = focusGuid;
+    }
 }
 var g_tipMgr;
 class TipsMgr {
@@ -4535,7 +5918,7 @@ class TipsMgr {
             this.tipsMap[tipId] = Coherent.translate(_daChoiceDescs[indexDescription]);
         }
     }
-    displayTip(tipId, forcedTipsContainer) {
+    displayTip(tipId, forcedTipsContainer, bDisplayChangePrivilege = false) {
         let tipsContainer;
         if (forcedTipsContainer) {
             tipsContainer = forcedTipsContainer;
@@ -4548,6 +5931,10 @@ class TipsMgr {
         span.innerHTML = this.tipsMap[tipId];
         Utils.RemoveAllChildren(tipsContainer.getContent());
         tipsContainer.addRealChild(span);
+        let buttonContainer = document.getElementById("PrivilegeButtonContainer");
+        if (buttonContainer) {
+            buttonContainer.classList.toggle("hide", !bDisplayChangePrivilege);
+        }
     }
 }
 var COLOR_PRESETS;
@@ -4578,28 +5965,57 @@ function updateBackgroundOpacity(opacity) {
 function updateAnimationsEnabled(enabled) {
     document.documentElement.classList.toggle('animationsEnabled', enabled);
 }
-for (let key in g_externalVariables) {
-    updateGlobalVar(key, g_externalVariables[key]);
-}
-for (let key in window.top.globalVars) {
-    updateGlobalVar(key, window.top.globalVars[key]);
-}
 var _optiPow10 = [];
-/*
-function fastToFixed(_val, _fraction) {
-    if (_fraction <= 0) {
-        return Math.round(_val).toString();
+function fastPow10(_frac) {
+    var coef = _optiPow10[_frac];
+    if (isNaN(coef)) {
+        coef = Math.pow(10, _frac);
+        _optiPow10[_frac] = coef;
     }
-    else {
-        var coef = _optiPow10[_fraction];
-        if (isNaN(coef)) {
-            coef = Math.pow(10, _fraction);
-            _optiPow10[_fraction] = coef;
-        }
-        return (Math.round(_val * coef) / coef).toString();
+    return coef;
+}
+function fastToFixed(_val, _fraction) {
+    if (_val !== null) {
+        return _val.toFixed(_fraction);
+    }
+    return _val;
+}
+function prepareForSetText(_element) {
+    _element.textContent = ' ';
+    return _element.firstChild;
+}
+function setText(_node, _text) {
+    _node.nodeValue = _text;
+}
+function diffAndSetText(_element, _newValue) {
+    if (_element && _element.textContent != _newValue) {
+        _element.textContent = _newValue;
     }
 }
-*/
+function diffAndSetHTML(_element, _newValue) {
+    if (_element && _element.innerHTML != _newValue) {
+        _element.innerHTML = _newValue;
+    }
+}
+function diffAndSetAttribute(_element, _attribute, _newValue) {
+    if (_element && _element.getAttribute(_attribute) != _newValue) {
+        _element.setAttribute(_attribute, _newValue);
+    }
+}
+var StyleProperty;
+(function (StyleProperty) {
+    StyleProperty[StyleProperty["display"] = 0] = "display";
+})(StyleProperty || (StyleProperty = {}));
+function diffAndSetStyle(_element, _property, _newValue) {
+    if (_element) {
+        switch (_property) {
+            case StyleProperty.display:
+                if (_element.style.display != _newValue)
+                    _element.style.display = _newValue;
+                break;
+        }
+    }
+}
 var KeyCode;
 (function (KeyCode) {
     KeyCode.KEY_CANCEL = 3;
@@ -4733,11 +6149,11 @@ class IconCacheMgr {
         this.m_loadingCallbacks = {};
     }
     loadURL(url, callback) {
-        let useCache = true;
+        const useCache = true;
         if (useCache) {
             let cached = this.getCached(url);
-            if (cached) {
-                callback(true, cached);
+            if (cached === null || cached !== undefined) {
+                callback(cached !== null, cached);
                 return;
             }
             if (!this.m_loadingCallbacks[url])
@@ -4747,16 +6163,18 @@ class IconCacheMgr {
                 return;
             }
             this.m_loading[url] = true;
-            this.m_loadingCallbacks[url] = [];
         }
-        let httpRequest = new XMLHttpRequest();
-        var svg = '';
+        const httpRequest = new XMLHttpRequest();
+        let svg = '';
         let mgr = this;
         httpRequest.onreadystatechange = function (data) {
             if (this.readyState === XMLHttpRequest.DONE) {
                 let loaded = this.status === 200 || this.status === 0;
                 if (loaded) {
                     mgr.addCachedAsString(url, this.responseText);
+                }
+                else {
+                    mgr.addCachedAsString(url, null);
                 }
                 mgr.m_loading[url] = null;
                 if (useCache) {
@@ -4766,7 +6184,6 @@ class IconCacheMgr {
                         }
                         mgr.m_loadingCallbacks[url] = null;
                     }
-                    callback(loaded, this.responseText);
                 }
                 else {
                     callback(loaded, this.responseText);
@@ -4782,9 +6199,7 @@ class IconCacheMgr {
         }
     }
     getCached(url) {
-        if (this.m_cache.hasOwnProperty(url))
-            return this.m_cache[url];
-        return null;
+        return this.m_cache[url];
     }
 }
 window["IconCache"] = new IconCacheMgr;
@@ -4823,9 +6238,12 @@ class IconElement extends UIElement {
     refreshDataUrl() {
         if (this.hasAttribute('data-url')) {
             var url = this.getAttribute('data-url').toString();
+            if (!url.includes("%")) {
+                url = encodeURI(url);
+            }
             if (url && url !== '') {
                 if (url.toLocaleLowerCase().endsWith(".svg")) {
-                    this.getSvg(this.getAttribute('data-url'));
+                    this.getSvg(url);
                 }
                 else {
                     this.setImage(url);
@@ -4836,7 +6254,7 @@ class IconElement extends UIElement {
             var url = this.getAttribute('icon-url').toString();
             if (url && url !== '') {
                 if (url.toLocaleLowerCase().endsWith(".svg")) {
-                    this.getSvg(this.getAttribute('icon-url'));
+                    this.getSvg(encodeURI(this.getAttribute('icon-url')));
                 }
                 else {
                     this.setImage(url);
@@ -4846,7 +6264,7 @@ class IconElement extends UIElement {
         else if (this.hasAttribute('data-icon')) {
             var icon = this.getAttribute('data-icon');
             if (icon && icon !== '') {
-                this.getSvg(this.iconsPath + this.getAttribute('data-icon') + '.svg');
+                this.getSvg(encodeURI(this.iconsPath + this.getAttribute('data-icon') + '.svg'));
             }
         }
     }
@@ -4856,14 +6274,7 @@ class IconElement extends UIElement {
         return template.content.firstChild;
     }
     getSvg(url) {
-        if (Utils.doesFileExist(url)) {
-            getIconCacheMgr().loadURL(url, this.onIconLoaded);
-        }
-        else {
-            if (this.onerror) {
-                this.onerror(null);
-            }
-        }
+        getIconCacheMgr().loadURL(url, this.onIconLoaded);
     }
     createContent() {
         Utils.RemoveAllChildren(this);
@@ -4896,7 +6307,7 @@ class IconElement extends UIElement {
             this.image.onerror = this.imageNotFound.bind(this);
             this.appendChild(this.image);
         }
-        this.image.src = this.imagePaths[0];
+        this.image.src = encodeURI(this.imagePaths[0].trim());
     }
     imageFound() {
         this.image.classList.remove("hide");
@@ -4912,4 +6323,12 @@ class IconElement extends UIElement {
     }
 }
 window.customElements.define("icon-element", IconElement);
+window.document.addEventListener('DOMContentLoaded', () => {
+    for (let key in g_externalVariables) {
+        updateGlobalVar(key, g_externalVariables[key]);
+    }
+    for (let key in window.top.globalVars) {
+        updateGlobalVar(key, window.top.globalVars[key]);
+    }
+});
 //# sourceMappingURL=common.js.map

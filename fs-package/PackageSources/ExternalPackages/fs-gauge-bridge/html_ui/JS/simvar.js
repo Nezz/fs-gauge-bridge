@@ -1,7 +1,7 @@
 var SimVar;
 
 (function (SimVar) {
-    Include.addScript("/JS/Types.js");
+    //Include.addScript("/JS/Types.js");
     class SimVarValue {
         constructor(_name = "", _unit = "number", _type) {
             this.__type = "SimVarValue";
@@ -49,5 +49,7 @@ var SimVar;
     SimVar.GetGlobalVarValue = SimVarBridge.GetGlobalVarValue;
     SimVar.GetGameVarValue = SimVarBridge.GetGameVarValue;
     SimVar.SetGameVarValue = SimVarBridge.SetGameVarValue;
+    SimVar.GetRegisteredId = function(name, unit, dataSource) { return -1; }
+    SimVar.GetSimVarValueFastReg = function(registeredID) { return null; }
 })(SimVar || (SimVar = {}));
 //# sourceMappingURL=simvar.js.map
