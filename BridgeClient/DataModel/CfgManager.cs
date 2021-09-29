@@ -145,10 +145,18 @@ namespace BridgeClient.DataModel
                       cfgEntry.htmlgauge00.height = int.Parse(key[4]);
                       cfgEntry.panel_path = relativePanelXml;
                       cfgEntry.panel_name = sectionTitle;
-                      cfgEntry.size_mm_w = int.Parse(section["size_mm"].Split(',')[0]);
-                      cfgEntry.size_mm_h = int.Parse(section["size_mm"].Split(',')[1]);
-                      cfgEntry.pixel_size_w = int.Parse(section["pixel_size"].Split(',')[0]);
-                      cfgEntry.pixel_size_h = int.Parse(section["pixel_size"].Split(',')[1]);
+
+                      var size = section["size_mm"];
+                      cfgEntry.size_mm_w = int.Parse(size.Split(',')[0]);
+                      cfgEntry.size_mm_h = int.Parse(size.Split(',')[1]);
+
+                      if (!section.TryGetValue("pixel_size", out var pixelSize))
+					  {
+                          pixelSize = size;
+					  }
+
+                      cfgEntry.pixel_size_w = int.Parse(pixelSize.Split(',')[0]);
+                      cfgEntry.pixel_size_h = int.Parse(pixelSize.Split(',')[1]);
 
                       gauges.Add(cfgEntry);
                       Trace.WriteLine($"CFG: Panel.cfg: htmlgauge: {cfgEntry.htmlgauge00.path}");
