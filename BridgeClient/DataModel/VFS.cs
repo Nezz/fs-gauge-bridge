@@ -135,8 +135,9 @@ namespace BridgeClient.DataModel
                 MapAndAddPackageDirectory(source, mapped);
             }
 
-            var parentPathToSelf = Path.GetDirectoryName(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
-            AddPackageDirectory(Path.Combine(parentPathToSelf, "ExternalPackages"));
+            var parentPathToSelf = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)));
+            AddPackageDirectory(Path.Combine(parentPathToSelf, "fs-package"));
+            AddPackageDirectory(Path.Combine(parentPathToSelf, "fs-package", "PackageSources", "ExternalPackages"));
         }
 
         private string SubstExec(string cmd)

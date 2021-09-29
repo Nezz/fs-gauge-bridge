@@ -12,7 +12,7 @@
 
 		"Templates": {
 			"WindowsStore": [
-				"%SystemDrive%\\MSFS Base\\Packages",
+				"D:\\MSFS\\Base",
 				"%localappdata%\\Packages\\Microsoft.FlightSimulator_8wekyb3d8bbwe\\LocalCache\\Packages\\Official\\OneStore",
 				"%localappdata%\\Packages\\Microsoft.FlightSimulator_8wekyb3d8bbwe\\LocalCache\\Packages\\Community"
 			],
