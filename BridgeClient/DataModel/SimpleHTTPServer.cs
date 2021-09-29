@@ -114,7 +114,7 @@ class SimpleHTTPServer
         {
             if (SimConnectViewModel.Instance.Title != null)
             {
-                var aircraftFolder = CfgManager.titleToAircraftDirectoryName[SimConnectViewModel.Instance.Title];
+                var aircraftFolder = CfgManager.titleToAircraftDirectoryName[SimConnectViewModel.Instance.Title].Split('-').First();
 
                 var data = new CfgData();
                 data.gauges = CfgManager.aircraftDirectoryNameToGaugeList[aircraftFolder].ToArray();

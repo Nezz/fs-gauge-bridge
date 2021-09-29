@@ -120,7 +120,8 @@ namespace BridgeClient.ViewModel
 
         private List<GaugeInfo> LoadGauges()
         {
-            var gauges = CfgManager.aircraftDirectoryNameToGaugeList[CfgManager.titleToAircraftDirectoryName[SimConnect.Title]];
+            var directory = CfgManager.titleToAircraftDirectoryName[SimConnect.Title];
+            var gauges = CfgManager.aircraftDirectoryNameToGaugeList[directory.Split('-').First()];
 
             var gauges2 = gauges.Select(g => new GaugeInfo(g.htmlgauge00.path)).ToList();
             for(var i = 0; i < gauges2.Count; i++)
