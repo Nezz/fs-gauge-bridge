@@ -92,23 +92,17 @@ namespace BridgeClient.DataModel
             var packageDirs = Directory.GetDirectories(dirPath);
             foreach (var packageFolder in packageDirs)
             {
-                AddImpl("", packageFolder);
+                Add(packageFolder);
             }
             Trace.WriteLine($"VFS: Added {packageDirs.Length} packages");
         }
 
-        private void AddImpl(string vfsPath, string pathToAdd)
+        private void Add(string path)
         {
-            foreach (var filePath in Directory.GetFiles(pathToAdd))
+            foreach (var filePath in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
             {
-                var vfsFilePath = Path.Combine(vfsPath, Path.GetFileName(filePath)).ToLower().Trim();
+                var vfsFilePath = Path.Combine(Path.GetFileName(filePath)).ToLower().Trim();
                 m_vfsPaths[vfsFilePath] = filePath;
-            }
-
-            foreach (var subDirectoryPath in Directory.GetDirectories(pathToAdd))
-            {
-                var vfsFolderPath = Path.Combine(vfsPath, Path.GetFileName(subDirectoryPath));
-                AddImpl(vfsFolderPath, subDirectoryPath);
             }
         }
 
@@ -130,67 +124,12 @@ namespace BridgeClient.DataModel
             for (var i = 0; i < _settings.Source.Length; i++)
             {
                 var source = Environment.ExpandEnvironmentVariables(_settings.Source[i]);
-                var mapped = Environment.ExpandEnvironmentVariables(_settings.Mapped[i]);
-
-                MapAndAddPackageDirectory(source, mapped);
+                AddPackageDirectory(source);
             }
 
-            var parentPathToSelf = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)));
-            AddPackageDirectory(Path.Combine(parentPathToSelf, "fs-package"));
-            AddPackageDirectory(Path.Combine(parentPathToSelf, "fs-package", "PackageSources", "ExternalPackages"));
-        }
-
-        private string SubstExec(string cmd)
-        {
-            var ret = ProcessHelper.RunAndGetResult("subst", cmd).Trim();
-            if (string.IsNullOrWhiteSpace(ret))
-            {
-                ret = "OK";
-            }
-            return ret;
-        }
-
-        private void Subst(string cmd)
-        {
-            Trace.WriteLine($"VFS: 'subst {cmd}' -> {SubstExec(cmd)}");
-        }
-
-        private void MapAndAddPackageDirectory(string source, string mapped)
-        {
-            Trace.WriteLine($"VFS: Mapping {source} to {mapped}");
-
-            Subst($"{mapped}: /D");
-
-            try
-            {
-                if (Directory.Exists(mapped + ":"))
-                {
-                    MessageBox.Show($"Warning: Map target at {mapped}: already exists\n\nUpdate settings.json with unused drive letters");
-                    Environment.Exit(0);
-                }
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine(ex);
-            }
-
-            Subst($"{mapped}: \"{source}\"");
-
-            AddPackageDirectory($"{mapped}:\\");
-        }
-
-        public void UnmapSources()
-        {
-            if (_settings.SkipUnmapOnShutdown)
-            {
-                return;
-            }
-            Trace.WriteLine($"VFS: UnmapSources");
-
-            foreach (var mapLetter in _settings.Mapped)
-            {
-                Subst($"{mapLetter}: /D");
-            }
+            var repoRoot = Directory.GetParent(Assembly.GetExecutingAssembly().Location).Parent.Parent.FullName;
+            AddPackageDirectory(Path.Combine(repoRoot, "fs-package"));
+            AddPackageDirectory(Path.Combine(repoRoot, "fs-package", "PackageSources", "ExternalPackages"));
         }
     }
 }

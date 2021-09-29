@@ -28,7 +28,6 @@ namespace BridgeClient
             {
                 var settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText("settings.json"));
                 var vfs = new VFS(settings.VFS);
-                Exit += (_, __) => vfs.UnmapSources();
 
                 CfgManager.Initialize(vfs);
                 CfgManager.PrintReport();

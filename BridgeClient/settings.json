@@ -4,11 +4,6 @@
 	},
 	"VFS": {
 		"Source": null,
-		"Mapped": [
-			"J",
-			"K",
-			"L"
-		],
 
 		"Templates": {
 			"WindowsStore": [
