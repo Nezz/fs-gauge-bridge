@@ -101,7 +101,7 @@ namespace BridgeClient.DataModel
         {
             foreach (var filePath in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
             {
-                var vfsFilePath = Path.Combine(Path.GetFileName(filePath)).ToLower().Trim();
+                var vfsFilePath = filePath.Substring(path.Length + 1).ToLower();
                 m_vfsPaths[vfsFilePath] = filePath;
             }
         }
@@ -130,6 +130,69 @@ namespace BridgeClient.DataModel
             var repoRoot = Directory.GetParent(Assembly.GetExecutingAssembly().Location).Parent.Parent.FullName;
             AddPackageDirectory(Path.Combine(repoRoot, "fs-package"));
             AddPackageDirectory(Path.Combine(repoRoot, "fs-package", "PackageSources", "ExternalPackages"));
+        }
+
+        public List<VCockpitConfigEntry> LoadPanel()
+        {
+            var airplaneDirectoryName = _settings.Airplane;
+            var relativeAircraftcfg = Path.Combine("simobjects", "airplanes", airplaneDirectoryName, "aircraft.cfg");
+
+            var resolvedCfgPath = Resolve(relativeAircraftcfg);
+            Trace.WriteLine($"CFG: Loading from {relativeAircraftcfg} ({resolvedCfgPath})");
+
+            var panelFolder = "panel";
+            var aircraftCfg = new CfgFile(resolvedCfgPath);
+            aircraftCfg.ReadMultipleSections("FLTSIM.", (section, sectionTitle) =>
+            {
+                if (section.ContainsKey("panel"))
+                {
+                    panelFolder += $".{section["panel"].Replace("\"", "")}";
+                }
+            });
+
+            var relativePanelCfg = Path.Combine("simobjects", "airplanes", airplaneDirectoryName, panelFolder, "panel.cfg");
+            var resolvedPanelCfg = Resolve(relativePanelCfg);
+
+            var panelCfg = new CfgFile(resolvedPanelCfg);
+            var gauges = new List<VCockpitConfigEntry>();
+            Action<Dictionary<string, string>, string> callback = (section, sectionTitle) =>
+            {
+                var cfgEntry = new VCockpitConfigEntry();
+                var gaugeKey = section.Keys.FirstOrDefault(j => j.StartsWith("htmlgauge"));
+                if (string.IsNullOrWhiteSpace(gaugeKey))
+                {
+                    Trace.WriteLine("CFG: Panel.cfg: Gauge key not found!");
+                }
+                else
+                {
+                    var key = section[gaugeKey].Split(',').Select(x => x.Trim()).ToArray();
+
+                    cfgEntry.htmlgauge00.path = key[0];
+                    cfgEntry.htmlgauge00.x = int.Parse(key[1]);
+                    cfgEntry.htmlgauge00.y = int.Parse(key[2]);
+                    cfgEntry.htmlgauge00.width = int.Parse(key[3]);
+                    cfgEntry.htmlgauge00.height = int.Parse(key[4]);
+                    cfgEntry.panel_name = sectionTitle;
+
+                    var size = section["size_mm"];
+                    cfgEntry.size_mm_w = int.Parse(size.Split(',')[0]);
+                    cfgEntry.size_mm_h = int.Parse(size.Split(',')[1]);
+
+                    if (!section.TryGetValue("pixel_size", out var pixelSize))
+                    {
+                        pixelSize = size;
+                    }
+
+                    cfgEntry.pixel_size_w = int.Parse(pixelSize.Split(',')[0]);
+                    cfgEntry.pixel_size_h = int.Parse(pixelSize.Split(',')[1]);
+
+                    gauges.Add(cfgEntry);
+                    Trace.WriteLine($"CFG: Panel.cfg: htmlgauge: {cfgEntry.htmlgauge00.path}");
+                }
+            };
+            panelCfg.ReadMultipleSections("VCOCKPIT0", callback, 1, 9);
+            panelCfg.ReadMultipleSections("VCOCKPIT1", callback, 0, 9);
+            return gauges;
         }
     }
 }

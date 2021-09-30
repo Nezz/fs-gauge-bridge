@@ -36,7 +36,6 @@
                     <Menu>
                         <MenuItem Header="File">
                             <MenuItem Command="{Binding OpenLog}" Header="Log" />
-                            <MenuItem Command="{Binding SetOverridePanel}" Header="Override Panel for current aircraft" />
                             <MenuItem Command="{Binding OpenVars}" Header="Variable List" />
                         </MenuItem>
                     </Menu>

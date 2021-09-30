@@ -29,17 +29,13 @@ namespace BridgeClient
                 var settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText("settings.json"));
                 var vfs = new VFS(settings.VFS);
 
-                CfgManager.Initialize(vfs);
-                CfgManager.PrintReport();
-
                 // Access is denied
                 // netsh http add urlacl url="http://+:4200/" user=everyone
                 _server = new SimpleHTTPServer(vfs, settings.Webserver);
 
                 _simConnect = new SimConnectViewModel();
 
-                var mainWindowViewModel = new MainWindowViewModel(new RelayCommand(OpenLog), new RelayCommand(OpenVarList));
-                mainWindowViewModel.SimConnect = _simConnect;
+                var mainWindowViewModel = new MainWindowViewModel(new RelayCommand(OpenLog), new RelayCommand(OpenVarList), vfs, _simConnect);
 
                 var window = new MainWindow { DataContext = mainWindowViewModel };
                 window.Closed += (_, __) => Environment.Exit(0);

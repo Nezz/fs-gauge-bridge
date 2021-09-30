@@ -1,9 +1,8 @@
 var SimVarBridge;
 
 function CreateSimVarBridge() {
-    let ALL = {};
-    let keys_list = [];
-    let keys_data = [];
+    let ALL = { "CIRCUIT AVIONICS ON": 1,
+        "ATC MODEL": "TT:ATCCOM.AC_MODEL_LONGITUDE.0.text" };
     let ws = null;
 
     this.AllData = ALL;
@@ -22,7 +21,7 @@ function CreateSimVarBridge() {
         ws = new WebSocket("ws://" + window.location.host + "/ws");
         ws.onopen = () => {
             console.log("WS: Connected");
-            doSend({type:"hello", values: keys_data});
+            doSend({type:"hello", values: []});
         };
         ws.onmessage = (msgEvent) => {
             let msg = JSON.parse(msgEvent.data);
@@ -48,22 +47,10 @@ function CreateSimVarBridge() {
         };
     }
     
-    function AdviseSimVar(name, unit) {
-        var key = name + "#" + unit;
-        if (!keys_list.includes(key)) {
-            keys_data.push({name, unit});
-            keys_list.push(key);
-
-            doSend({type:"read", values: [ {name, unit} ]});
-        }
-    }
-    
     function GetSimVarValue(name, unit, dataSource = "") 
     {
         name = SanitizeName(name);
         unit = SanitizeUnit(unit);
-
-        AdviseSimVar(name, unit);
 
         switch (unit.toLowerCase()) {
             case "latlonalt":
@@ -73,6 +60,20 @@ function CreateSimVarBridge() {
             case "xyz":
                 console.log("### GetSimVarValue datatype ERR: " + name)
                 break;
+        }
+
+        if (name == "")
+            return 1;
+
+        if (name in ALL)
+        {
+            return ALL[name];
+        }
+        else
+        {
+            ALL[name] = 0;
+            console.log(name);
+            return ALL[name];
         }
 
         if (name.startsWith("C:")) {
@@ -89,6 +90,10 @@ function CreateSimVarBridge() {
     function SetSimVarValue(name, unit, value, dataSource = "") {
         name = SanitizeName(name);
         unit = SanitizeUnit(unit);
+
+        if (!name.startsWith("C:")) {
+            console.log(name);
+        }
 
         if (name.startsWith("C:")) {
           //  return fs9gps.SetSimVarValue(name, unit, value);
@@ -128,8 +133,7 @@ function CreateSimVarBridge() {
         if (!name && unit === "glasscockpitsettings") {
             return {
                 AirSpeed: {
-                    Initialized: true,
-                    ...VCockpitExternal.cockpitCfg
+                    Initialized: false,
                 },
                 FlapsLevels: {
                     initialised: false,
@@ -187,7 +191,7 @@ function CreateSimVarBridge() {
     }
 
     function GetSimVarArrayValues(simvars, callback, dataSource = "") {
-        return fs9gps.GetSimVarArrayValues(simvars, callback);
+        
     }
     
 

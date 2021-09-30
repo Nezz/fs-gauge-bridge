@@ -4,6 +4,7 @@
 	},
 	"VFS": {
 		"Source": null,
+		"Airplane": "Asobo_Longitude",
 
 		"Templates": {
 			"WindowsStore": [

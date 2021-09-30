@@ -11,6 +11,7 @@
         public VFSSourceTemplate Templates { get; set; } = new VFSSourceTemplate();
 
         public string[] Source { get; set; }
+        public string Airplane { get; set; }
     }
 
     class WebserverSettings

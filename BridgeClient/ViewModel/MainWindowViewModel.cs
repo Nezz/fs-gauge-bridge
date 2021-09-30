@@ -37,6 +37,8 @@ namespace BridgeClient.ViewModel
 
     class MainWindowViewModel : BaseViewModel
     {
+        private VFS vfs;
+
         public SimConnectViewModel SimConnect { get => Get<SimConnectViewModel>(); set => Set(value); }
         public ObservableCollection<GaugeInfo> Gauges { get => Get<ObservableCollection<GaugeInfo>>(); set => Set(value); }
         public string PanelText { get => Get<string>(); set => Set(value); }
@@ -44,36 +46,15 @@ namespace BridgeClient.ViewModel
         public string Title => "FS Gauge Bridge";
         public ICommand OpenLog { get; }
         public ICommand OpenVars { get; }
-        public ICommand SetOverridePanel { get; }
 
-        public MainWindowViewModel(ICommand log, ICommand openVars)
+        public MainWindowViewModel(ICommand log, ICommand openVars, VFS vfs, SimConnectViewModel simConnect)
         {
             OpenLog = log;
             OpenVars = openVars;
             PanelText = "Panel.cfg not loaded yet";
 
-            var savedTitle = SimConnect?.Title;
-
-
-            SetOverridePanel = new RelayCommand(() =>
-            {
-                var openFileDialog = new Microsoft.Win32.OpenFileDialog();
-                openFileDialog.DefaultExt = ".cfg";
-                openFileDialog.Filter = "CFG Files (*.cfg)|*.cfg";
-                if (openFileDialog.ShowDialog() == true)
-                {
-                    try
-                    {
-                        CfgManager.SetPanelForTitle(openFileDialog.FileName, SimConnect.Title);
-                        savedTitle = "Reloading";
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(ex.ToString());
-                    }
-                }
-
-            });
+            this.vfs = vfs;
+            this.SimConnect = simConnect;
 
             var isSimConnected = new TextWithValue { Name = "SimConnect" };
             var simBridgeOps = new TextWithValue { Name = "Bridge ops/sec" };
@@ -97,31 +78,17 @@ namespace BridgeClient.ViewModel
 
                 simBridgeOps.Value = Math.Round(SimConnect.BridgeCounter.Fps).ToString();
                 simBridgeOps.IsOK = !SimConnect.IsConnected || SimConnect.BridgeCounter.Fps > 1;
-
-                acTitle.Value = SimConnect.Title;
-
-                if (savedTitle != SimConnect.Title && SimConnect.Title != null)
-                {
-                    PanelText = "Panel.cfg not loaded yet";
-                    try
-                    {
-                        
-                        Gauges = new ObservableCollection<GaugeInfo>(LoadGauges());
-                    }
-                    catch (Exception)
-                    {
-                        PanelText = "Failed to load panel.cfg";
-                    }
-                    savedTitle = SimConnect.Title;
-                }
             };
             t.Start();
+
+            acTitle.Value = "Longitude";
+
+            Gauges = new ObservableCollection<GaugeInfo>(LoadGauges());
         }
 
         private List<GaugeInfo> LoadGauges()
         {
-            var directory = CfgManager.titleToAircraftDirectoryName[SimConnect.Title];
-            var gauges = CfgManager.aircraftDirectoryNameToGaugeList[directory.Split('-').First()];
+            var gauges = this.vfs.LoadPanel();
 
             var gauges2 = gauges.Select(g => new GaugeInfo(g.htmlgauge00.path)).ToList();
             for(var i = 0; i < gauges2.Count; i++)

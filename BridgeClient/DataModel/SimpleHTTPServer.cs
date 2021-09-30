@@ -29,8 +29,7 @@ public class WSValue
 
 class CfgData
 {
-    public VCockpitConfigEntry[] gauges { get; set; }
-    public Dictionary<string, string> cockpitcfg { get; set; }
+    public List<VCockpitConfigEntry> gauges { get; set; }
 }
 
 class SimpleHTTPServer
@@ -110,31 +109,18 @@ class SimpleHTTPServer
                 context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
             }
         }
-        else if (filename == "all_cfg")
+        else if (filename == "config")
         {
-            if (SimConnectViewModel.Instance.Title != null)
-            {
-                var aircraftFolder = CfgManager.titleToAircraftDirectoryName[SimConnectViewModel.Instance.Title].Split('-').First();
+            var data = new CfgData();
+            data.gauges = _vfs.LoadPanel();
 
-                var data = new CfgData();
-                data.gauges = CfgManager.aircraftDirectoryNameToGaugeList[aircraftFolder].ToArray();
-                data.cockpitcfg = CfgManager.aircraftDirectoryNameToCockpitCfg[aircraftFolder].Values["AIRSPEED"];
+            var json = JsonConvert.SerializeObject(data);
+            var bytes = context.Request.ContentEncoding.GetBytes(json);
 
-                var json = JsonConvert.SerializeObject(data);
-                var bytes = context.Request.ContentEncoding.GetBytes(json);
-
-                context.Response.StatusCode = (int)HttpStatusCode.OK;
-                context.Response.ContentType = "text/json";
-                context.Response.OutputStream.Write(bytes, 0, bytes.Length);
-                context.Response.OutputStream.Flush();
-            }
-            else
-            {
-                var bytes = context.Request.ContentEncoding.GetBytes("{\"error\":\"true\"}");
-                context.Response.OutputStream.Write(bytes, 0, bytes.Length);
-                context.Response.ContentType = "text/json";
-                context.Response.StatusCode = (int)HttpStatusCode.OK;
-            }
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.ContentType = "text/json";
+            context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            context.Response.OutputStream.Flush();
         }
         else
         {
@@ -177,7 +163,8 @@ class SimpleHTTPServer
             }
             else
             {
-                if (!filename.Contains(".js.map") &&
+                if (!filename.EndsWith(".js.map") &&
+                    !filename.EndsWith(".css.map") &&
                     filename != "favicon.ico")
                 {
                     Console.WriteLine("WEB: ### 404: " + filename);
@@ -282,23 +269,14 @@ class SimpleHTTPServer
             switch (msg.type)
             {
                 case "hello":
+                    break;
                 case "read":
-                    SimConnectViewModel.Instance.AdviseVariables(msg.values.Select(v => new WSValue { name = v.name, unit = v.unit }).ToList());
                     break;
                 case "write":
                     {
                         foreach (var v in msg.values)
                         {
-                            if (v.value is UInt64 uintValue)
-                            {
-                                v.value = (double)uintValue;
-                            }
-                            else if (v.value is long longValue)
-                            {
-                                v.value = (double)longValue;
-                            }
-                            // v.value = double.Parse((string)v.value);
-                            SimConnectViewModel.Instance.Write(v);
+                            SimConnectViewModel.Instance.SendEvent(v);
                         }
                     }
                     break;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Threading;
+using FlightStreamDeck.Core;
 
 namespace BridgeClient.ViewModel
 {
@@ -44,7 +45,7 @@ namespace BridgeClient.ViewModel
 
         public ObservableCollection<VariableItem> Variables { get => Get<ObservableCollection<VariableItem>>(); set => Set(value); }
 
-        private Dictionary<string, VariableItem> m_variables = new Dictionary<string, VariableItem>();
+        private Dictionary<TOGGLE_VALUE, VariableItem> m_variables = new Dictionary<TOGGLE_VALUE, VariableItem>();
 
         public VariableListWindowViewModel(SimConnectViewModel simConnect)
         {
@@ -54,25 +55,18 @@ namespace BridgeClient.ViewModel
             t.Interval = TimeSpan.FromSeconds(0.2);
             t.Tick += (_, __) =>
             {
-                var all = simConnect.GetAllSafe().OrderBy(x => x.Key);
+                var all = simConnect.Status.OrderBy(x => x.Key);
                 foreach (var kv in all)
                 {
-                    if (!string.IsNullOrWhiteSpace(Input))
+                    var simVar = kv.Key.variable;
+                    if (m_variables.ContainsKey(simVar))
                     {
-                        if (kv.Key.Trim().ToLower().IndexOf(Input.Trim().ToLower()) < 0)
-                        {
-                            continue;
-                        }
-                    }
-
-                    if (m_variables.ContainsKey(kv.Key))
-                    {
-                        m_variables[kv.Key].Value = kv.Value.ToString();
+                        m_variables[simVar].Value = kv.Value.ToString();
                     }
                     else
                     {
-                        m_variables[kv.Key] = new VariableItem { Name = kv.Key, Value = kv.Value.ToString() };
-                        Variables.Add(m_variables[kv.Key]);
+                        m_variables[simVar] = new VariableItem { Name = simVar.ToString().Replace("__", ":").Replace("_", " "), Value = kv.Value.ToString() };
+                        Variables.Add(m_variables[simVar]);
                     }
                 }
             };

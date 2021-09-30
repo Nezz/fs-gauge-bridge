@@ -81,19 +81,6 @@ function CreateCoherentBridge() {
 
     this.endProfileEvent = () => {};
 
-    this.GetSimVarArrayValues = function (simvars, callback) {
-        return;
-        // console.log("GetSimVarArrayValues " + simvars);
-        
-          send({
-              c: 'gsa',
-              a: [simvars, SerializeCallback(callback)]
-          });
-          // callback: _sender, _event
-          //  console;.log("coherent.on " + eventName);
-      }
-
-
     let onCallback = (msg) => {
         console.log("coherent.onCallback " + JSON.stringify(msg));
         m_callbacks[msg.id].apply(m_callbacks[msg.id], msg.args);

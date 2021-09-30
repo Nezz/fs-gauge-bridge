@@ -43,13 +43,14 @@ function CreateVCockpitExternal() {
     return ret;
   }
 
-  fetch('/all_cfg').then(response => response.json()).then(all_data => {
+  fetch('/config').then(response => response.json()).then(all_data => {
     if (all_data.error) {
       alert("Fatal Error: panel.cfg data not yet available");
       return;
     }
+    
+    let selectedId = window.location.search.startsWith("?id=") ? Number(window.location.search.substr(4, 2)) : 0;
 
-    VCockpitExternal.cockpitCfg = convertToCfg(all_data.cockpitcfg);
     VCockpitExternal.panelCfg = all_data.gauges;
 
     var allInstruments = all_data.gauges.map((m, idx) => ({
@@ -58,7 +59,6 @@ function CreateVCockpitExternal() {
       vPosAndSize: { x: 0, y: 0, w: Number(m.htmlgauge00.height), z: Number(m.htmlgauge00.width) },
     }));
 
-    let selectedId = window.location.search.startsWith("?id=") ? Number(window.location.search.substr(4, 2)) : 0;
     let selectedInstrument = allInstruments[selectedId];
     let selectedInstrumentData = all_data.gauges[selectedId];
     if (!selectedInstrument) {
@@ -76,8 +76,6 @@ function CreateVCockpitExternal() {
 
     installShims();
     CreatePanel();
-    CommLinkExternal.Initialize();
-    fs9gps.Initialize();
   });
 }
 VCockpitExternal = new CreateVCockpitExternal();
