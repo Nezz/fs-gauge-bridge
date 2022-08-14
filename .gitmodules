@@ -1,0 +1,3 @@
+[submodule "FlightStreamDeck"]
+	path = FlightStreamDeck
+	url = git@github.com:Nezz/Flight-Tracker-StreamDeck.git

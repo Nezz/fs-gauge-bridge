@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BridgeClient", "BridgeClien
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BridgeGauge", "BridgeGauge\BridgeGauge.vcxproj", "{7FC01851-6041-4490-838E-44C45DEFC48B}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FlightStreamDeck.Essentials", "..\FlightControl\FlightStreamDeck.Essentials\FlightStreamDeck.Essentials.csproj", "{C692FC20-61EF-48DB-A0B8-88B7B55E12A7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FlightStreamDeck.Essentials", "FlightStreamDeck\FlightStreamDeck.Essentials\FlightStreamDeck.Essentials.csproj", "{C692FC20-61EF-48DB-A0B8-88B7B55E12A7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
